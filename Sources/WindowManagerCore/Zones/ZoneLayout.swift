@@ -331,6 +331,9 @@ public struct ZoneLayout: Codable, Hashable, Identifiable, Sendable {
 public enum ZoneOverlapRule: String, Codable, CaseIterable, Sendable {
     case smallest
     case topmost
+    /// The zone whose centre is nearest the cursor, so a zone mostly covered by smaller ones can
+    /// still be picked near its middle.
+    case closestCenter
 }
 
 /// Starting points for new layouts.
