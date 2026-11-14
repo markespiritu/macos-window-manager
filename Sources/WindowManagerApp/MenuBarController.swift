@@ -10,18 +10,44 @@ final class MenuBarController: NSObject, NSMenuDelegate {
     init(app: AppDelegate) {
         self.app = app
         super.init()
-        // A larger point size and medium weight: at the default size this wide symbol came out
-        // shorter than the other menu bar icons, with thin, soft-looking lines.
-        let config = NSImage.SymbolConfiguration(pointSize: 16, weight: .medium)
-        let image = NSImage(systemSymbolName: "rectangle.split.2x1", accessibilityDescription: "Window Manager")?
-            .withSymbolConfiguration(config)
-        image?.isTemplate = true
-        item.button?.image = image
+        item.button?.image = Self.icon
         item.button?.imageScaling = .scaleNone // drawn at its own size, never resampled
         let menu = NSMenu()
         menu.delegate = self
         item.menu = menu
     }
+
+    /// The status icon: a window split into two zones, drawn by hand rather than from an SF
+    /// Symbol. The drawing handler runs once per screen scale, so every line is snapped to whole
+    /// device pixels: crisp on 1x displays (where the symbol's thin lines fell between pixels and
+    /// the top and bottom edges faded out) as well as Retina ones.
+    static let icon: NSImage = {
+        let size = NSSize(width: 20, height: 16)
+        let image = NSImage(size: size, flipped: false) { bounds in
+            guard let ctx = NSGraphicsContext.current?.cgContext else { return false }
+            let scale = max(ctx.userSpaceToDeviceSpaceTransform.a, 1)
+            let px = 1 / scale
+            // 2 device pixels at 1x, 3 at 2x: bold enough to match the system icons.
+            let line = (scale >= 2 ? 3 : 2) * px
+            func snap(_ v: CGFloat) -> CGFloat { (v * scale).rounded() / scale }
+            // Outline centred on the pixel grid so the stroke covers whole pixels.
+            let inset = line / 2
+            let outer = CGRect(x: snap(1) + inset, y: snap(1.5) + inset,
+                               width: snap(18) - line, height: snap(13) - line)
+            let frame = NSBezierPath(roundedRect: outer, xRadius: 2.5, yRadius: 2.5)
+            frame.lineWidth = line
+            NSColor.black.setStroke()
+            frame.stroke()
+            // The split: a vertical bar a little left of centre, like a 40 / 60 zone layout.
+            let x = snap(outer.minX + outer.width * 0.42)
+            NSColor.black.setFill()
+            NSRect(x: x - line / 2, y: outer.minY, width: line, height: outer.height).fill()
+            return true
+        }
+        image.isTemplate = true
+        image.accessibilityDescription = "Window Manager"
+        return image
+    }()
 
     /// Rebuilt each time it opens so it reflects the current permission and settings.
     func menuNeedsUpdate(_ menu: NSMenu) {
