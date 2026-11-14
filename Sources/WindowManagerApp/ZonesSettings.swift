@@ -231,7 +231,8 @@ private struct ZoneCanvas: View {
                     .fill(Color.black.opacity(0.25))
                     .frame(width: size.width, height: size.height)
                 ForEach(0..<min(layout.root.zoneCount, rects.count), id: \.self) { i in
-                    zone(i, rects[i], real: real.indices.contains(i) ? real[i] : .zero)
+                    zone(i, rects[i], real: real.indices.contains(i) ? real[i] : .zero,
+                         covers: Array(rects.dropFirst(layout.root.zoneCount)))
                 }
                 ForEach(dividers) { d in
                     divider(d, spacing: spacing)
@@ -251,14 +252,16 @@ private struct ZoneCanvas: View {
         .frame(minHeight: 200)
     }
 
-    private func zone(_ i: Int, _ r: CGRect, real: CGRect) -> some View {
+    /// `covers`: the free zones' rects; the label moves to a part of the zone they leave visible.
+    private func zone(_ i: Int, _ r: CGRect, real: CGRect, covers: [CGRect]) -> some View {
         let on = hovered == i
+        let spot = Self.labelSpot(in: r, avoiding: covers)
         let pw = Int((real.width / max(screen.width, 1) * 100).rounded())
         let ph = Int((real.height / max(screen.height, 1) * 100).rounded())
         return RoundedRectangle(cornerRadius: 5)
             .fill(Color.accentColor.opacity(on ? 0.5 : 0.3))
             .overlay(RoundedRectangle(cornerRadius: 5).stroke(Color.accentColor, lineWidth: on ? 2 : 1))
-            .overlay(
+            .overlay(alignment: .topLeading) {
                 VStack(spacing: 2) {
                     Text("\(i + 1)").font(.system(size: min(max(min(r.width, r.height) / 5, 11), 24), weight: .semibold))
                     if r.width > 70 && r.height > 50 {
@@ -267,7 +270,9 @@ private struct ZoneCanvas: View {
                     }
                 }
                 .foregroundStyle(.white)
-            )
+                .fixedSize()
+                .position(x: spot.x - r.minX, y: spot.y - r.minY)
+            }
             .frame(width: max(r.width, 1), height: max(r.height, 1))
             .offset(x: r.minX, y: r.minY)
             .onHover { hovered = $0 ? i : (hovered == i ? nil : hovered) }
@@ -299,9 +304,8 @@ private struct ZoneCanvas: View {
                           canvas: CGRect, all: [CGRect]) -> some View {
         let active = floatDrag?.id == f.id || hovered == i
         return RoundedRectangle(cornerRadius: 5)
-            // Nearly opaque, so the zone underneath (and its label) doesn't show through.
-            .fill(Color.orange.opacity(active ? 0.95 : 0.85))
-            .background(RoundedRectangle(cornerRadius: 5).fill(Color(nsColor: .windowBackgroundColor)))
+            // See-through, so the zones underneath stay visible (their labels move out of the way).
+            .fill(Color.orange.opacity(active ? 0.5 : 0.35))
             .overlay(RoundedRectangle(cornerRadius: 5).stroke(Color.orange, lineWidth: active ? 2.5 : 1.5))
             .overlay(label(i, r, real: real))
             .overlay(alignment: .bottomTrailing) {
@@ -342,6 +346,23 @@ private struct ZoneCanvas: View {
                 Divider()
                 Button("Remove Zone") { layout.floating.remove(at: k) }
             }
+    }
+
+    /// Where to put a zone's label: its centre, or else the first of a few other spots inside it
+    /// that no free zone covers (falls back to the centre).
+    private static func labelSpot(in r: CGRect, avoiding covers: [CGRect]) -> CGPoint {
+        let label = CGSize(width: 90, height: 56)
+        let spots = [CGPoint(x: r.midX, y: r.midY),
+                     CGPoint(x: r.midX, y: r.maxY - label.height / 2 - 8), CGPoint(x: r.midX, y: r.minY + label.height / 2 + 8),
+                     CGPoint(x: r.minX + label.width / 2 + 8, y: r.midY), CGPoint(x: r.maxX - label.width / 2 - 8, y: r.midY),
+                     CGPoint(x: r.minX + label.width / 2 + 8, y: r.maxY - label.height / 2 - 8),
+                     CGPoint(x: r.maxX - label.width / 2 - 8, y: r.maxY - label.height / 2 - 8),
+                     CGPoint(x: r.minX + label.width / 2 + 8, y: r.minY + label.height / 2 + 8),
+                     CGPoint(x: r.maxX - label.width / 2 - 8, y: r.minY + label.height / 2 + 8)]
+        return spots.first { p in
+            let box = CGRect(x: p.x - label.width / 2, y: p.y - label.height / 2, width: label.width, height: label.height)
+            return r.contains(p) && !covers.contains { $0.intersects(box) }
+        } ?? spots[0]
     }
 
     /// Edges of `r` within grabbing distance of `p`; empty in the middle (a move).
