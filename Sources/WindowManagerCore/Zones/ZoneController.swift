@@ -17,11 +17,13 @@ public final class ZoneController {
     private var showing = false
 
     /// Windows this controller resized into a zone: their size before, and the frame it gave them.
-    private var zoned: [CGWindowID: (original: CGSize, placed: CGRect)] = [:]
+    /// Kept in UserDefaults, so a window zoned before the app was relaunched still gets its size back.
+    private var zoned: ZonedWindows
 
-    public init(store: ZoneStore, service: WindowService = WindowService()) {
+    public init(store: ZoneStore, service: WindowService = WindowService(), defaults: UserDefaults = .standard) {
         self.store = store
         self.service = service
+        zoned = ZonedWindows(defaults: defaults)
     }
 
     // MARK: Dragging
@@ -95,17 +97,40 @@ public final class ZoneController {
 
     // MARK: Remembered sizes
 
-    /// Records that a window was put into a zone. `original` is kept if it was already zoned.
-    public func didZone(_ wid: CGWindowID, original: CGSize, placed: CGRect) {
-        zoned[wid] = (zoned[wid]?.original ?? original, placed)
+    /// Records that a window was put into a zone. `original` is kept if it was already zoned, so
+    /// moving a window from zone to zone still gives it its first size back.
+    ///
+    /// Apps do not always take the exact zone frame (Terminal sizes in whole character cells, some
+    /// windows have a minimum size), so once the placement has landed the frame the window really
+    /// got is remembered instead.
+    public func didZone(_ wid: CGWindowID, pid: pid_t, original: CGSize, placed: CGRect) {
+        zoned.set(wid, ZonedWindow(pid: pid, original: zoned.get(wid, pid: pid)?.original ?? original, placed: placed))
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
+            guard let self, var z = self.zoned.get(wid, pid: pid), z.placed == placed,
+                  let actual = WindowList.frame(of: wid) else { return }
+            z.placed = actual
+            self.zoned.set(wid, z)
+        }
+    }
+
+    /// The window was resized by hand: it keeps its new size from now on.
+    public func forget(_ wid: CGWindowID) {
+        zoned.remove(wid)
     }
 
     /// The size a zoned window should get back when a drag takes it out of its zone, if the window
-    /// is still the size its zone gave it. Forgets the window either way.
-    public func takeRestoreSize(_ wid: CGWindowID, current: CGRect) -> CGSize? {
-        guard let z = zoned.removeValue(forKey: wid), store.restoreSizeOnDragOut else { return nil }
-        let same = abs(z.placed.width - current.width) < 4 && abs(z.placed.height - current.height) < 4
-        return same ? z.original : nil
+    /// is still the size its zone gave it (not maximised or resized since). Forgets the window
+    /// either way.
+    public func takeRestoreSize(_ wid: CGWindowID, pid: pid_t, current: CGRect) -> CGSize? {
+        guard let z = zoned.get(wid, pid: pid) else { return nil }
+        zoned.remove(wid)
+        guard store.restoreSizeOnDragOut, Self.sameSize(z.placed, current) else { return nil }
+        return z.original
+    }
+
+    /// The window is still the size its zone gave it, allowing for a few points of rounding.
+    nonisolated static func sameSize(_ a: CGRect, _ b: CGRect) -> Bool {
+        abs(a.width - b.width) <= 8 && abs(a.height - b.height) <= 8
     }
 
     // MARK: Hotkeys
@@ -135,11 +160,60 @@ public final class ZoneController {
         }
         let rect = all[min(target, all.count - 1)]
         service.setFrame(rect, of: window)
-        if let wid = window.windowID { didZone(wid, original: frame.size, placed: rect) }
+        if let wid = window.windowID { didZone(wid, pid: window.pid, original: frame.size, placed: rect) }
     }
 
     /// Cursor position in AX space.
     static var mouseLocation: CGPoint {
         CGEvent(source: nil)?.location ?? .zero
+    }
+}
+
+/// One window put into a zone.
+struct ZonedWindow: Codable, Equatable {
+    /// Window numbers are reused after a logout, so the owning process must match too.
+    var pid: pid_t
+    var original: CGSize
+    var placed: CGRect
+}
+
+/// The zoned windows, persisted in UserDefaults under `zonedWindows`. Windows that no longer exist
+/// are dropped when it loads.
+struct ZonedWindows {
+    private static let key = "zonedWindows"
+    private let defaults: UserDefaults
+    private var windows: [CGWindowID: ZonedWindow]
+
+    init(defaults: UserDefaults, exists: (CGWindowID, pid_t) -> Bool = ZonedWindows.windowExists) {
+        self.defaults = defaults
+        let saved = defaults.data(forKey: Self.key)
+            .flatMap { try? JSONDecoder().decode([CGWindowID: ZonedWindow].self, from: $0) } ?? [:]
+        windows = saved.filter { exists($0.key, $0.value.pid) }
+        if windows.count != saved.count { save() }
+    }
+
+    func get(_ wid: CGWindowID, pid: pid_t) -> ZonedWindow? {
+        windows[wid].flatMap { $0.pid == pid ? $0 : nil }
+    }
+
+    mutating func set(_ wid: CGWindowID, _ window: ZonedWindow) {
+        windows[wid] = window
+        save()
+    }
+
+    mutating func remove(_ wid: CGWindowID) {
+        guard windows.removeValue(forKey: wid) != nil else { return }
+        save()
+    }
+
+    private func save() {
+        if windows.isEmpty { defaults.removeObject(forKey: Self.key); return }
+        if let data = try? JSONEncoder().encode(windows) { defaults.set(data, forKey: Self.key) }
+    }
+
+    static func windowExists(_ wid: CGWindowID, pid: pid_t) -> Bool {
+        guard let info = (CGWindowListCopyWindowInfo(.optionIncludingWindow, wid) as? [[String: Any]])?.first
+        else { return false }
+        return info[kCGWindowOwnerPID as String] as? pid_t == pid
     }
 }

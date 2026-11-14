@@ -45,6 +45,8 @@ public final class SnapController {
         var placed: CGRect?
         /// True when this controller moves the window itself (snapping on); false when macOS does.
         var owns = false
+        /// Snap edges while placing (snapping on). An owned drag without it only follows the mouse.
+        var snaps = false
         /// The window's size changes on the next placement (restoring its pre-zone size).
         var resize = false
         var mouse: CGPoint
@@ -144,6 +146,9 @@ public final class SnapController {
             // Wait for the window to start changing to know whether this is a move or a resize.
             guard let now = WindowList.frame(of: d.windowID),
                   let op = SnapEngine.Operation.detect(from: d.startFrame, to: now) else { drag = d; return true }
+            // A window resized by hand keeps its new size: dragging it out of its zone later
+            // leaves it alone.
+            if op != .move { zones?.forget(d.windowID) }
             // Without snapping only moves matter (for zones), and macOS keeps doing the dragging.
             guard snapping || (op == .move && zones != nil) else { drag = nil; return true }
             // Only take over windows we can actually place; otherwise leave the drag to macOS.
@@ -151,15 +156,17 @@ public final class SnapController {
                   op == .move ? window.isMovable : window.isResizable else { drag = nil; return true }
             d.window = window
             d.owns = snapping
+            d.snaps = snapping
             if op == .move {
                 zones?.beginDrag()
                 // A window dragged out of a zone gets its old size back, keeping the point under
-                // the cursor at the same relative spot across the title bar.
-                if d.owns, let size = zones?.takeRestoreSize(d.windowID, current: d.startFrame) {
-                    let s = d.startFrame
-                    let x = d.startMouse.x - (d.startMouse.x - s.minX) * size.width / max(s.width, 1)
-                    d.startFrame = CGRect(x: x, y: s.minY, width: size.width, height: size.height)
+                // the cursor at the same relative spot across the title bar. This controller then
+                // moves the window for the rest of the drag even with snapping off, since macOS's
+                // own drag would not follow the new size.
+                if let size = zones?.takeRestoreSize(d.windowID, pid: d.pid, current: d.startFrame) {
+                    d.startFrame = Self.restoredFrame(d.startFrame, size: size, mouse: d.startMouse)
                     d.resize = true
+                    d.owns = true
                 }
             }
             let others = WindowList.onScreen().filter { $0.windowID != d.windowID }.map(\.frame)
@@ -179,7 +186,7 @@ public final class SnapController {
         let inZones = session.operation == .move && zones?.update(mouse: mouse, flags: flags) != nil
         guard d.owns else { drag = d; return true }
         // Over zones the window just follows the mouse; it goes into the zone on release.
-        let target = inZones ? raw : session.update(raw)
+        let target = inZones || !d.snaps ? raw : session.update(raw)
         d.session = session
         if target != d.placed {
             place(window, at: target, operation: d.resize ? .resize([.left, .top]) : session.operation)
@@ -206,7 +213,7 @@ public final class SnapController {
                     placer.endDrag()
                 }
             }
-            zones?.didZone(d.windowID, original: d.startFrame.size, placed: zone)
+            zones?.didZone(d.windowID, pid: d.pid, original: d.startFrame.size, placed: zone)
             if d.owns { placer.endDrag() }
             return
         }
@@ -214,8 +221,17 @@ public final class SnapController {
         defer { placer.endDrag() }
         let raw = Self.rawFrame(start: d.startFrame, operation: session.operation,
                                 dx: mouse.x - d.startMouse.x, dy: mouse.y - d.startMouse.y)
-        let target = session.update(raw)
+        let target = d.snaps ? session.update(raw) : raw
         if target != d.placed { place(window, at: target, operation: session.operation) }
+    }
+
+    /// The frame a window dragged out of its zone gets: its old size, at the same top edge, with the
+    /// point under the cursor at the same relative spot across the title bar (FancyZones does the
+    /// same), and the cursor always over the window even when the old size is narrow.
+    nonisolated static func restoredFrame(_ zoned: CGRect, size: CGSize, mouse: CGPoint) -> CGRect {
+        let fraction = min(max((mouse.x - zoned.minX) / max(zoned.width, 1), 0), 1)
+        let x = mouse.x - fraction * size.width
+        return CGRect(x: x, y: zoned.minY, width: size.width, height: size.height)
     }
 
     /// Where the window would be without snapping: the start frame plus the mouse travel, applied
