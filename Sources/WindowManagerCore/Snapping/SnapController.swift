@@ -115,7 +115,11 @@ public final class SnapController {
 
     private func mouseDown(at point: CGPoint) {
         drag = nil
-        guard let hit = WindowList.window(at: point, margin: 6) else { return }
+        // This app's own windows (Settings) are snap targets but are left to macOS to drag: asking
+        // our own process for its windows over Accessibility from inside the event tap callback
+        // would wait on the very thread that is running the callback.
+        guard let hit = WindowList.window(at: point, margin: 6),
+              hit.pid != ProcessInfo.processInfo.processIdentifier else { return }
         drag = DragState(windowID: hit.windowID, pid: hit.pid, startFrame: hit.frame, startMouse: point)
     }
 

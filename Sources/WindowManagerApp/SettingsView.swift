@@ -72,22 +72,16 @@ private struct SnappingSettings: View {
             }
             Section {
                 LabeledContent("Snap distance") {
-                    HStack {
-                        Slider(value: $settings.snapDistance, in: 4...50, step: 1).frame(width: 180)
-                        Text("\(Int(settings.snapDistance)) pt").monospacedDigit().frame(width: 44, alignment: .trailing)
-                    }
+                    PointsField(value: $settings.snapDistance)
                 }
                 LabeledContent("Pull-off distance") {
-                    HStack {
-                        Slider(value: $settings.releaseDistance, in: max(4, settings.snapDistance)...80, step: 1).frame(width: 180)
-                        Text("\(Int(settings.releaseDistance)) pt").monospacedDigit().frame(width: 44, alignment: .trailing)
-                    }
+                    PointsField(value: $settings.releaseDistance)
                 }
                 Toggle("Only snap when the window slows down", isOn: $settings.snapOnlyWhenSlow)
                 Toggle("Snap to screen edges", isOn: $settings.snapToScreenEdges)
                 Toggle("Snap to other windows", isOn: $settings.snapToWindows)
             } footer: {
-                Text("Edges snap within the snap distance and stay snapped until pulled past the pull-off distance. Windows that sit side by side also line up their tops and bottoms, including when you resize one of them.")
+                Text("Screen edges and other windows use the same snap distance. A snapped edge lets go once pulled past the pull-off distance (never less than the snap distance). Windows that sit flush side by side also line up their tops and bottoms, including when you resize one of them.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -95,5 +89,33 @@ private struct SnappingSettings: View {
             .disabled(!settings.snappingEnabled)
         }
         .formStyle(.grouped)
+    }
+}
+
+/// A 1–30 pt value as a slider plus a text field for typing an exact number.
+/// The slider range is fixed (a range that depends on another setting can loop while dragging).
+private struct PointsField: View {
+    @Binding var value: Double
+    static let range: ClosedRange<Double> = 1...30
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Slider(value: clamped, in: Self.range, step: 1).frame(width: 160)
+            TextField("", value: typed, format: .number)
+                .textFieldStyle(.roundedBorder)
+                .multilineTextAlignment(.trailing)
+                .frame(width: 44)
+            Text("pt").foregroundStyle(.secondary)
+        }
+    }
+
+    private var clamped: Binding<Double> {
+        Binding(get: { min(max(value, Self.range.lowerBound), Self.range.upperBound) },
+                set: { value = $0.rounded() })
+    }
+
+    private var typed: Binding<Int> {
+        Binding(get: { Int(value.rounded()) },
+                set: { value = min(max(Double($0), Self.range.lowerBound), Self.range.upperBound) })
     }
 }
