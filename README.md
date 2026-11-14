@@ -4,7 +4,7 @@ A menu bar window manager for macOS 14+, written in Swift (SwiftUI + AppKit) wit
 dependencies. Windows snap to screen edges and to each other as you move and resize them, the way
 KWin does, and you can drop them into zone layouts you design yourself, like FancyZones.
 
-![Holding Option while dragging a window shows the display's zones; the highlighted one is where it lands](docs/images/zone-overlay.png)
+![Holding Option while dragging a window shows the display's zones, here a picture-in-picture layout with two columns and a small free zone on top; the highlighted one is where it lands](docs/images/zone-overlay.png)
 
 ## Features
 
@@ -144,6 +144,14 @@ B="build/Window Manager.app/Contents/MacOS/WindowManagerApp"
 "$B" --list-displays                  # displays, visible frames in AX coordinates
 "$B" --list-spaces                    # Spaces per display (SkyLight)
 "$B" --snap 1234 [distance]           # snap a window by number as if it had just been moved
+```
+
+To see how a drag performs (event tap time, placements per second, how often a window was slow to
+get where it was put), turn on the drag trace and relaunch the app:
+
+```bash
+defaults write io.marky.windowmanager traceDrag -bool YES
+log stream --predicate 'subsystem == "io.marky.windowmanager"' --level info
 ```
 
 ### Source layout
