@@ -14,7 +14,7 @@ struct SettingsView: View {
                 .tabItem { Label("General", systemImage: "gearshape") }
             SnappingSettings(settings: settings)
                 .tabItem { Label("Snapping", systemImage: "rectangle.and.arrow.up.right.and.arrow.down.left") }
-            ZonesSettings(store: app.zoneStore)
+            ZonesSettings(store: app.zoneStore, history: app.zoneHistory)
                 .tabItem { Label("Zones", systemImage: "rectangle.split.3x1") }
         }
         .frame(minWidth: 700, maxWidth: .infinity, minHeight: 600, maxHeight: .infinity)

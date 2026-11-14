@@ -6,10 +6,12 @@ import WindowManagerCore
 
 /// Owns the app's long-lived objects and wires them together.
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, ObservableObject {
     let settings = SettingsStore()
     let permission = AccessibilityPermission()
     let zoneStore = ZoneStore()
+    /// Undo history of the zone layout editor, one per layout.
+    private(set) lazy var zoneHistory = ZoneEditHistory(store: zoneStore)
     private(set) var snapper: SnapController!
     private(set) var zones: ZoneController!
     private let hotkeys = HotkeyCenter()
@@ -25,6 +27,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         snapper.snapping = settings.snappingEnabled
         snapper.zones = zones
         menuBar = MenuBarController(app: self)
+        NSApp.mainMenu = makeMainMenu()
 
         // Any snapping setting change rebuilds the engine (on the next run loop pass, after the
         // @Published value has been stored).
@@ -101,7 +104,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
     func showSettings() {
         if settingsWindow == nil {
             let view = SettingsView(app: self, settings: settings, permission: permission)
-            let w = makeWindow(title: "Settings", content: view)
+            let w = UndoWindow(contentViewController: NSHostingController(rootView: view))
+            w.title = "Settings"
+            w.styleMask = [.titled, .closable, .miniaturizable]
+            // ⌘Z / ⇧⌘Z and Edit › Undo / Redo: the zone editor's history for the layout it shows,
+            // while the Zones tab is open.
+            w.undoProvider = { [weak self] in self?.zoneHistory.activeManager }
             w.isReleasedWhenClosed = false
             // Resizable, so the zone editor can be made large; the content sets only a minimum.
             (w.contentViewController as? NSHostingController<SettingsView>)?.sizingOptions = [.minSize]
@@ -109,10 +117,68 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
             w.setContentSize(NSSize(width: 900, height: 760))
             w.center()
             w.setFrameAutosaveName("Settings") // restores the last size and place, if any
+            w.delegate = self
             settingsWindow = w
         }
+        // A regular app while Settings is open, so the menu bar (Edit › Undo / Redo) shows.
+        NSApp.setActivationPolicy(.regular)
         present(settingsWindow!)
     }
+
+    // MARK: NSWindowDelegate (Settings)
+
+    func windowWillClose(_ notification: Notification) {
+        guard (notification.object as? NSWindow) === settingsWindow else { return }
+        NSApp.setActivationPolicy(.accessory) // back to a menu bar only app
+    }
+
+    // MARK: Main menu
+
+    /// Shown while Settings is open. The Edit menu also gives text fields their usual shortcuts.
+    private func makeMainMenu() -> NSMenu {
+        let main = NSMenu()
+        func submenu(_ title: String, _ items: [NSMenuItem]) {
+            let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+            let menu = NSMenu(title: title)
+            items.forEach(menu.addItem)
+            item.submenu = menu
+            main.addItem(item)
+        }
+        func item(_ title: String, _ action: Selector?, _ key: String, _ mods: NSEvent.ModifierFlags = .command) -> NSMenuItem {
+            let i = NSMenuItem(title: title, action: action, keyEquivalent: key)
+            i.keyEquivalentModifierMask = mods
+            return i
+        }
+        let settings = item("Settings…", #selector(openSettingsFromMenu), ",")
+        settings.target = self
+        submenu("Window Manager", [
+            settings,
+            .separator(),
+            item("Hide Window Manager", #selector(NSApplication.hide(_:)), "h"),
+            item("Hide Others", #selector(NSApplication.hideOtherApplications(_:)), "h", [.command, .option]),
+            item("Show All", #selector(NSApplication.unhideAllApplications(_:)), ""),
+            .separator(),
+            item("Quit Window Manager", #selector(NSApplication.terminate(_:)), "q"),
+        ])
+        submenu("Edit", [
+            item("Undo", Selector(("undo:")), "z"),
+            item("Redo", Selector(("redo:")), "z", [.command, .shift]),
+            .separator(),
+            item("Cut", #selector(NSText.cut(_:)), "x"),
+            item("Copy", #selector(NSText.copy(_:)), "c"),
+            item("Paste", #selector(NSText.paste(_:)), "v"),
+            item("Select All", #selector(NSText.selectAll(_:)), "a"),
+        ])
+        let windowMenu = [
+            item("Close", #selector(NSWindow.performClose(_:)), "w"),
+            item("Minimize", #selector(NSWindow.performMiniaturize(_:)), "m"),
+        ]
+        submenu("Window", windowMenu)
+        NSApp.windowsMenu = main.items.last?.submenu
+        return main
+    }
+
+    @objc private func openSettingsFromMenu() { showSettings() }
 
     private func makeWindow<V: View>(title: String, content: V) -> NSWindow {
         let w = NSWindow(contentViewController: NSHostingController(rootView: content))
@@ -127,3 +193,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         w.makeKeyAndOrderFront(nil)
     }
 }
+
+
+/// A window whose undo manager is chosen by `undoProvider` each time it is asked for, falling
+/// back to the window's own. (The delegate's windowWillReturnUndoManager is not asked again once
+/// the window has handed one out.) Undo / Redo and their menu titles are handled here too, so
+/// they always use that manager.
+final class UndoWindow: NSWindow {
+    var undoProvider: (() -> UndoManager?)?
+    override var undoManager: UndoManager? { undoProvider?() ?? super.undoManager }
+
+    @objc func undo(_ sender: Any?) { undoManager?.undo() }
+    @objc func redo(_ sender: Any?) { undoManager?.redo() }
+
+    override func validateMenuItem(_ item: NSMenuItem) -> Bool {
+        switch item.action {
+        case Selector(("undo:")):
+            item.title = undoManager?.undoMenuItemTitle ?? "Undo"
+            return undoManager?.canUndo == true
+        case Selector(("redo:")):
+            item.title = undoManager?.redoMenuItemTitle ?? "Redo"
+            return undoManager?.canRedo == true
+        default:
+            return super.validateMenuItem(item)
+        }
+    }
+}
+

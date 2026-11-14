@@ -5,12 +5,16 @@ import WindowManagerCore
 /// Settings › Zones: preferences, the layout each display uses, and an editor for that layout.
 struct ZonesSettings: View {
     @ObservedObject var store: ZoneStore
+    /// Undo / redo for the layout editor (⌘Z, ⇧⌘Z and the Edit menu act on the layout shown).
+    let history: ZoneEditHistory
     @State private var displays = DisplayService.displays
     @State private var displayID: CGDirectDisplayID = DisplayService.displays.first?.id ?? 0
     @State private var confirmDelete = false
     @State private var confirmReset = false
 
     private var display: Display? { displays.first { $0.id == displayID } ?? displays.first }
+    /// The layout in the editor.
+    private var editedLayout: UUID? { display.flatMap { store.layout(for: $0)?.id } }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -20,10 +24,13 @@ struct ZonesSettings: View {
             if let display {
                 layoutPicker(for: display)
                 if let layout = store.layout(for: display) {
-                    LayoutEditor(layout: binding(for: layout.id, fallback: layout), screen: display.visibleFrame.size,
+                    LayoutEditor(layout: binding(for: layout.id, fallback: layout), history: history, screen: display.visibleFrame.size,
                                  canDelete: store.layouts.count > 1, onDelete: { confirmDelete = true })
                         .confirmationDialog("Delete “\(layout.name)”?", isPresented: $confirmDelete) {
-                            Button("Delete Layout", role: .destructive) { store.delete(layout.id) }
+                            Button("Delete Layout", role: .destructive) {
+                                store.delete(layout.id)
+                                history.forget(layout.id)
+                            }
                         }
                 }
             }
@@ -31,6 +38,9 @@ struct ZonesSettings: View {
             .disabled(!store.enabled)
         }
         .padding(16)
+        .onAppear { history.activeLayout = editedLayout }
+        .onChange(of: editedLayout) { _, id in history.activeLayout = id }
+        .onDisappear { history.activeLayout = nil } // another Settings tab: ⌘Z leaves zones alone
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didChangeScreenParametersNotification)) { _ in
             displays = DisplayService.displays
         }
@@ -107,7 +117,10 @@ struct ZonesSettings: View {
                 .fixedSize()
                 Button("Reset to Defaults…") { confirmReset = true }
                     .confirmationDialog("Reset all zone layouts?", isPresented: $confirmReset) {
-                        Button("Reset Layouts", role: .destructive) { store.resetLayouts() }
+                        Button("Reset Layouts", role: .destructive) {
+                            store.resetLayouts()
+                            history.forgetAll()
+                        }
                     } message: {
                         Text("Your custom layouts are deleted and every display goes back to the first default layout.")
                     }
@@ -171,6 +184,7 @@ private struct LayoutThumbnail: View {
 /// Edits one layout: name, spacing, and the zones themselves.
 private struct LayoutEditor: View {
     @Binding var layout: ZoneLayout
+    let history: ZoneEditHistory
     let screen: CGSize
     let canDelete: Bool
     let onDelete: () -> Void
@@ -185,7 +199,9 @@ private struct LayoutEditor: View {
                 Button {
                     // Each new zone is offset a little from the last, so they don't hide each other.
                     let step = 0.04 * Double(layout.floating.count % 6)
-                    layout.floating.append(FloatingZone(rect: CGRect(x: 0.3 + step, y: 0.3 + step, width: 0.4, height: 0.4)))
+                    history.edit(layout.id, "Add Zone") {
+                        $0.floating.append(FloatingZone(rect: CGRect(x: 0.3 + step, y: 0.3 + step, width: 0.4, height: 0.4)))
+                    }
                 } label: {
                     Label("Add Zone", systemImage: "plus.rectangle.on.rectangle")
                 }
@@ -196,14 +212,17 @@ private struct LayoutEditor: View {
                     .help("Fades the free zones and lets clicks through, to edit the zones underneath.")
                 Spacer()
                 Text("Spacing")
-                Slider(value: Binding(get: { layout.spacing }, set: { layout.spacing = $0.rounded() }), in: 0...30).frame(width: 120)
+                Slider(value: Binding(get: { layout.spacing }, set: { v in
+                    // One undo step per slider drag (or run of changes close together).
+                    history.edit(layout.id, "Change Spacing", coalesce: "spacing", within: 1) { $0.spacing = v.rounded() }
+                }), in: 0...30).frame(width: 120)
                 Text("\(Int(layout.spacing)) pt").monospacedDigit().foregroundStyle(.secondary).frame(width: 36, alignment: .trailing)
                 Button(role: .destructive, action: onDelete) { Image(systemName: "trash") }
                     .disabled(!canDelete)
                     .help("Delete this layout")
             }
-            ZoneCanvas(layout: $layout, screen: screen, hideFree: hideFree)
-            Text("Right-click a zone to split or remove it, and drag the lines between zones to resize them. Add Zone puts a free zone on top: drag it to move it, drag its edges or corners to resize it (they stick to other zones and to ½ ⅓ ¼ of the screen), and right-click it to change its layer. The lines between split zones stay draggable on top; Hide Free Zones fades the free zones so you can right-click the zones under them. Sizes are in points on this display, and as a share of the screen; double-click a size to type an exact one. Click a zone to select it: Delete removes it, arrows move a free zone (⇧ for 10 pt), ⌥ arrows resize it, and arrows resize a split zone.")
+            ZoneCanvas(layout: layout, history: history, screen: screen, hideFree: hideFree)
+            Text("Right-click a zone to split or remove it, and drag the lines between zones to resize them. Add Zone puts a free zone on top: drag it to move it, drag its edges or corners to resize it (they stick to other zones and to ½ ⅓ ¼ of the screen), and right-click it to change its layer. The lines between split zones stay draggable on top; Hide Free Zones fades the free zones so you can right-click the zones under them. Sizes are in points on this display, and as a share of the screen; double-click a size to type an exact one. Click a zone to select it: Delete removes it, arrows move a free zone (⇧ for 10 pt), ⌥ arrows resize it, and arrows resize a split zone. ⌘Z undoes, ⇧⌘Z redoes.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -213,7 +232,8 @@ private struct LayoutEditor: View {
 
 /// The interactive zone editor: a scaled picture of the display.
 private struct ZoneCanvas: View {
-    @Binding var layout: ZoneLayout
+    let layout: ZoneLayout
+    let history: ZoneEditHistory
     let screen: CGSize
     let hideFree: Bool
     @State private var hovered: Int?
@@ -227,6 +247,9 @@ private struct ZoneCanvas: View {
     @State private var editing: (zone: Int, axis: SplitAxis)?
     @State private var editText = ""
     @FocusState private var editFocused: Bool
+    /// Coalescing key for the drag in progress (free zone or divider): the whole drag is one
+    /// undo step. Renewed when a drag ends.
+    @State private var dragKey = UUID().uuidString
 
     var body: some View {
         GeometryReader { geo in
@@ -324,8 +347,8 @@ private struct ZoneCanvas: View {
             .onHover { hovered = $0 ? i : (hovered == i ? nil : hovered) }
             .help("Zone \(i + 1): \(Int(real.width)) × \(Int(real.height)) pt (\(pw)% × \(ph)% of the screen)")
             .contextMenu {
-                Button("Split Side by Side") { layout.root.split(zone: i, along: .columns) }
-                Button("Split Top and Bottom") { layout.root.split(zone: i, along: .rows) }
+                Button("Split Side by Side") { edit("Split Zone") { $0.root.split(zone: i, along: .columns) } }
+                Button("Split Top and Bottom") { edit("Split Zone") { $0.root.split(zone: i, along: .rows) } }
                 Divider()
                 Button("Remove Zone") { removeZone(i) }
                     .disabled(layout.root.zoneCount < 2)
@@ -374,10 +397,19 @@ private struct ZoneCanvas: View {
         guard let v = Double(editText.trimmingCharacters(in: .whitespaces)) else { return }
         var l = layout
         if l.setSize(ofZone: e.zone, along: e.axis, to: CGFloat(v), in: CGRect(origin: .zero, size: screen)) {
-            layout = l
+            commit(l, e.axis == .columns ? "Change Zone Width" : "Change Zone Height")
         } else {
             NSSound.beep() // e.g. the height of a zone that already fills the screen top to bottom
         }
+    }
+
+    /// Saves an edited layout as one undo step (or part of the step `coalesce` names).
+    private func commit(_ l: ZoneLayout, _ name: String, coalesce: String? = nil, within: TimeInterval? = nil) {
+        history.commit(l, name, coalesce: coalesce, within: within)
+    }
+
+    private func edit(_ name: String, _ change: (inout ZoneLayout) -> Void) {
+        history.edit(layout.id, name, change)
     }
 
     private func select(_ i: Int) {
@@ -396,7 +428,8 @@ private struct ZoneCanvas: View {
         }
         var l = layout
         let changed: Bool
-        if resize || i < l.root.zoneCount {
+        let resizing = resize || i < l.root.zoneCount
+        if resizing {
             let rects = l.zoneRects(in: frame)
             guard rects.indices.contains(i) else { return }
             changed = dx != 0
@@ -405,7 +438,12 @@ private struct ZoneCanvas: View {
         } else {
             changed = l.move(zone: i, dx: dx, dy: dy, in: frame)
         }
-        if changed { layout = l } else { NSSound.beep() }
+        // A run of presses on one zone (each within a second of the last) is one undo step.
+        if changed {
+            commit(l, resizing ? "Resize Zone" : "Move Zone", coalesce: "nudge-\(i)-\(resizing)", within: 1)
+        } else {
+            NSSound.beep()
+        }
     }
 
     /// Removes a split zone (not the last one; its neighbour takes the space) or a free zone.
@@ -413,9 +451,9 @@ private struct ZoneCanvas: View {
         let base = layout.root.zoneCount
         if i >= base {
             guard layout.floating.indices.contains(i - base) else { return }
-            layout.floating.remove(at: i - base)
+            edit("Remove Zone") { $0.floating.remove(at: i - base) }
         } else if base > 1 {
-            layout.root.remove(zone: i)
+            edit("Remove Zone") { $0.root.remove(zone: i) }
         } else {
             NSSound.beep()
             return
@@ -476,17 +514,22 @@ private struct ZoneCanvas: View {
                     let ys = [0, 0.25, 1.0 / 3, 0.5, 2.0 / 3, 0.75, 1].map { canvas.minY + canvas.height * $0 } + others.flatMap { [$0.minY, $0.maxY] }
                     let snapped = GuideSnap.snap(moved, edges: drag.edges, xs: xs, ys: ys, threshold: 6)
                     guard layout.floating.indices.contains(k) else { return }
-                    layout.floating[k].rect = FloatingZone.fraction(of: snapped, in: canvas)
+                    var l = layout
+                    l.floating[k].rect = FloatingZone.fraction(of: snapped, in: canvas)
+                    commit(l, drag.edges == .all ? "Move Zone" : "Resize Zone", coalesce: dragKey)
                 }
-                .onEnded { _ in floatDrag = nil })
+                .onEnded { _ in
+                    floatDrag = nil
+                    dragKey = UUID().uuidString
+                })
             .contextMenu {
-                Button("Bring to Front") { let z = layout.floating.remove(at: k); layout.floating.append(z) }
+                Button("Bring to Front") { edit("Bring to Front") { $0.floating.append($0.floating.remove(at: k)) } }
                     .disabled(k == layout.floating.count - 1)
-                Button("Bring Forward") { layout.floating.swapAt(k, k + 1) }
+                Button("Bring Forward") { edit("Bring Forward") { $0.floating.swapAt(k, k + 1) } }
                     .disabled(k == layout.floating.count - 1)
-                Button("Send Backward") { layout.floating.swapAt(k, k - 1) }
+                Button("Send Backward") { edit("Send Backward") { $0.floating.swapAt(k, k - 1) } }
                     .disabled(k == 0)
-                Button("Send to Back") { let z = layout.floating.remove(at: k); layout.floating.insert(z, at: 0) }
+                Button("Send to Back") { edit("Send to Back") { $0.floating.insert($0.floating.remove(at: k), at: 0) } }
                     .disabled(k == 0)
                 Divider()
                 Button("Remove Zone") { removeZone(i) }
@@ -560,9 +603,13 @@ private struct ZoneCanvas: View {
             .onHover { inside in
                 if inside { (d.axis == .columns ? NSCursor.resizeLeftRight : NSCursor.resizeUpDown).push() } else { NSCursor.pop() }
             }
-            .gesture(DragGesture(minimumDistance: 0, coordinateSpace: .named("canvas")).onChanged { v in
-                layout.root.move(d, to: d.axis == .columns ? v.location.x : v.location.y, spacing: spacing)
-            })
+            .gesture(DragGesture(minimumDistance: 0, coordinateSpace: .named("canvas"))
+                .onChanged { v in
+                    var l = layout
+                    l.root.move(d, to: d.axis == .columns ? v.location.x : v.location.y, spacing: spacing)
+                    commit(l, "Resize Zones", coalesce: dragKey)
+                }
+                .onEnded { _ in dragKey = UUID().uuidString })
             .position(x: hit.midX, y: hit.midY) // last: modifiers after .position would cover the whole canvas
     }
 }
