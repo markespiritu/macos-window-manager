@@ -181,7 +181,9 @@ private struct LayoutEditor: View {
                     .textFieldStyle(.roundedBorder)
                     .frame(maxWidth: 200)
                 Button {
-                    layout.floating.append(FloatingZone(rect: CGRect(x: 0.3, y: 0.3, width: 0.4, height: 0.4)))
+                    // Each new zone is offset a little from the last, so they don't hide each other.
+                    let step = 0.04 * Double(layout.floating.count % 6)
+                    layout.floating.append(FloatingZone(rect: CGRect(x: 0.3 + step, y: 0.3 + step, width: 0.4, height: 0.4)))
                 } label: {
                     Label("Add Zone", systemImage: "plus.rectangle.on.rectangle")
                 }
@@ -218,7 +220,8 @@ private struct ZoneCanvas: View {
             let size = CGSize(width: screen.width * scale, height: screen.height * scale)
             let rect = CGRect(origin: .zero, size: size)
             let spacing = CGFloat(layout.spacing) * scale
-            let rects = layout.root.zoneRects(in: rect, spacing: spacing)
+            // Split zones, then free zones, in zone order (as on the display).
+            let rects = layout.root.zoneRects(in: rect, spacing: spacing) + layout.floating.map { $0.frame(in: rect) }
             let dividers = layout.root.dividers(in: rect, spacing: spacing)
             // The zones' real sizes on the display, in points.
             let real = layout.zoneRects(in: CGRect(origin: .zero, size: screen))
@@ -227,7 +230,7 @@ private struct ZoneCanvas: View {
                 RoundedRectangle(cornerRadius: 6)
                     .fill(Color.black.opacity(0.25))
                     .frame(width: size.width, height: size.height)
-                ForEach(rects.indices, id: \.self) { i in
+                ForEach(0..<min(layout.root.zoneCount, rects.count), id: \.self) { i in
                     zone(i, rects[i], real: real.indices.contains(i) ? real[i] : .zero)
                 }
                 ForEach(dividers) { d in
@@ -296,7 +299,9 @@ private struct ZoneCanvas: View {
                           canvas: CGRect, all: [CGRect]) -> some View {
         let active = floatDrag?.id == f.id || hovered == i
         return RoundedRectangle(cornerRadius: 5)
-            .fill(Color.orange.opacity(active ? 0.55 : 0.4))
+            // Nearly opaque, so the zone underneath (and its label) doesn't show through.
+            .fill(Color.orange.opacity(active ? 0.95 : 0.85))
+            .background(RoundedRectangle(cornerRadius: 5).fill(Color(nsColor: .windowBackgroundColor)))
             .overlay(RoundedRectangle(cornerRadius: 5).stroke(Color.orange, lineWidth: active ? 2.5 : 1.5))
             .overlay(label(i, r, real: real))
             .overlay(alignment: .bottomTrailing) {

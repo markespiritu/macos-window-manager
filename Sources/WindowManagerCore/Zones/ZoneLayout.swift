@@ -255,7 +255,9 @@ public struct ZoneLayout: Codable, Hashable, Identifiable, Sendable {
         name = try c.decode(String.self, forKey: .name)
         root = try c.decode(ZoneNode.self, forKey: .root)
         spacing = try c.decode(Double.self, forKey: .spacing)
-        floating = try c.decodeIfPresent([FloatingZone].self, forKey: .floating) ?? []
+        // Drop degenerate free zones (nothing could be dropped on them, and they cannot be grabbed).
+        floating = (try c.decodeIfPresent([FloatingZone].self, forKey: .floating) ?? [])
+            .filter { $0.rect.width >= 0.01 && $0.rect.height >= 0.01 }
     }
 
     public var zoneCount: Int { root.zoneCount + floating.count }
