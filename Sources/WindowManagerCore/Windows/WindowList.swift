@@ -11,8 +11,9 @@ public enum WindowList {
         public let owner: String
     }
 
-    /// Normal (layer 0) on-screen windows of other apps, front to back.
-    public static func onScreen(excludingPID: pid_t = ProcessInfo.processInfo.processIdentifier) -> [Entry] {
+    /// Normal (layer 0) on-screen windows, front to back. Includes this app's own windows (such as
+    /// Settings), which are snap targets like any other.
+    public static func onScreen(excludingPID: pid_t? = nil) -> [Entry] {
         guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements],
                                                     kCGNullWindowID) as? [[String: Any]] else { return [] }
         return list.compactMap(entry).filter { $0.pid != excludingPID && $0.frame.width > 40 && $0.frame.height > 40 }

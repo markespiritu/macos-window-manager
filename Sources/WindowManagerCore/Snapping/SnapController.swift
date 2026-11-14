@@ -23,6 +23,7 @@ public final class SnapController {
     public private(set) var isRunning = false
 
     private let service: WindowService
+    private let placer = WindowPlacer()
     private var tap: CFMachPort?
     private var source: CFRunLoopSource?
     private var drag: DragState?
@@ -152,14 +153,55 @@ public final class SnapController {
     }
 
     private func place(_ window: Window, at frame: CGRect, operation: SnapEngine.Operation) {
-        switch operation {
+        placer.place(window, at: frame, operation: operation)
+    }
+}
+
+/// Sets window frames off the main thread. An Accessibility call is a round trip to the other
+/// app and can take milliseconds; doing it inside the event tap callback held up every mouse event
+/// system-wide, which made the cursor and the drag stutter. Requests are coalesced: while one is
+/// in flight only the newest pending frame is kept, so a slow app gets the latest position rather
+/// than a backlog.
+final class WindowPlacer: @unchecked Sendable {
+    private struct Request {
+        let window: Window
+        let frame: CGRect
+        let operation: SnapEngine.Operation
+    }
+
+    private let queue = DispatchQueue(label: "io.marky.windowmanager.placer", qos: .userInteractive)
+    private let lock = NSLock()
+    private var pending: Request?
+    private var draining = false
+
+    func place(_ window: Window, at frame: CGRect, operation: SnapEngine.Operation) {
+        lock.lock()
+        pending = Request(window: window, frame: frame, operation: operation)
+        let start = !draining
+        draining = true
+        lock.unlock()
+        if start { queue.async { self.drain() } }
+    }
+
+    private func drain() {
+        while true {
+            lock.lock()
+            guard let r = pending else { draining = false; lock.unlock(); return }
+            pending = nil
+            lock.unlock()
+            apply(r)
+        }
+    }
+
+    private func apply(_ r: Request) {
+        switch r.operation {
         case .move:
-            AX.set(window.element, kAXPositionAttribute, point: frame.origin)
+            AX.set(r.window.element, kAXPositionAttribute, point: r.frame.origin)
         case .resize(let edges):
             if edges.contains(.left) || edges.contains(.top) {
-                AX.set(window.element, kAXPositionAttribute, point: frame.origin)
+                AX.set(r.window.element, kAXPositionAttribute, point: r.frame.origin)
             }
-            AX.set(window.element, kAXSizeAttribute, size: frame.size)
+            AX.set(r.window.element, kAXSizeAttribute, size: r.frame.size)
         }
     }
 }
