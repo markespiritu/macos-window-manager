@@ -8,32 +8,34 @@ import WindowManagerCore
 final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
     let settings = SettingsStore()
     let permission = AccessibilityPermission()
-    let hotkeys = HotkeyCenter()
-    let runner = ActionRunner()
+    private(set) var snapper: SnapController!
 
     private var menuBar: MenuBarController!
     private var onboarding: NSWindow?
     private var settingsWindow: NSWindow?
     private var cancellables: Set<AnyCancellable> = []
 
-    /// Action ids whose shortcut another app already owns; shown in settings.
-    @Published private(set) var conflicts: Set<String> = []
-
     func applicationDidFinishLaunching(_ notification: Notification) {
+        snapper = SnapController(engine: settings.snapEngine, isEnabled: settings.snappingEnabled)
         menuBar = MenuBarController(app: self)
 
-        settings.$bindings
-            .sink { [weak self] b in self?.registerHotkeys(b) }
+        // Any snapping setting change rebuilds the engine (on the next run loop pass, after the
+        // @Published value has been stored).
+        Publishers.MergeMany(settings.$snapDistance.map { _ in () }.eraseToAnyPublisher(),
+                             settings.$snapToScreenEdges.map { _ in () }.eraseToAnyPublisher(),
+                             settings.$snapToWindows.map { _ in () }.eraseToAnyPublisher())
+            .receive(on: RunLoop.main)
+            .sink { [weak self] in
+                guard let self else { return }
+                self.snapper.engine = self.settings.snapEngine
+            }
             .store(in: &cancellables)
-        settings.$gap
-            .sink { [weak self] g in self?.runner.gap = CGFloat(g) }
+        settings.$snappingEnabled
+            .sink { [weak self] on in self?.snapper.isEnabled = on }
             .store(in: &cancellables)
         permission.$isGranted
             .removeDuplicates()
-            .sink { [weak self] granted in
-                self?.menuBar.refresh()
-                if granted { self?.onboarding?.close() }
-            }
+            .sink { [weak self] granted in if granted { self?.onboarding?.close() } }
             .store(in: &cancellables)
 
         if !permission.isGranted { showOnboarding() }
@@ -46,22 +48,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         if permission.isGranted { showSettings() } else { showOnboarding() }
         return false
-    }
-
-    func perform(_ action: WindowAction) {
-        guard permission.isGranted else { showOnboarding(); return }
-        if case .applied = runner.run(action) { return }
-        NSSound.beep()
-    }
-
-    private func registerHotkeys(_ bindings: [WindowAction: KeyCombo]) {
-        let list = bindings.map { action, combo in
-            HotkeyCenter.Binding(id: action.rawValue, combo: combo) { [weak self] in
-                Task { @MainActor in self?.perform(action) }
-            }
-        }
-        conflicts = Set(hotkeys.setBindings(list))
-        menuBar?.refresh(bindings: bindings)
     }
 
     // MARK: Windows

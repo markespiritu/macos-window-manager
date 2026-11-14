@@ -19,24 +19,20 @@ enum DebugCommands {
                 let ids = (d["Spaces"] as? [[String: Any]] ?? []).compactMap { $0["id64"] as? Int }
                 print("display \(display) | current \(current) | spaces \(ids)")
             }
-        case "--action":
-            // --action <name> [--window <wid>]: run an action on the focused window, or on a window
-            // chosen by number (handy from a terminal, whose own window is otherwise the focused one).
-            guard let name = rest.first, let action = WindowAction(rawValue: name) else {
-                print("actions:", WindowAction.allCases.map(\.rawValue).joined(separator: " "))
-                return 2
+        case "--snap":
+            // --snap <wid> [distance]: snap a window's current frame as if it had just been moved.
+            guard let wid = rest.first.flatMap(UInt32.init), let entry = WindowList.onScreen().first(where: { $0.windowID == wid }),
+                  let window = WindowService().window(withID: wid, pid: entry.pid) else {
+                print("usage: --snap <window number> [distance]"); return 2
             }
-            let service = WindowService()
-            let runner = ActionRunner(windows: service)
-            if let i = rest.firstIndex(of: "--window"), i + 1 < rest.count, let wid = UInt32(rest[i + 1]) {
-                guard let w = service.windows(includeNonStandard: true).first(where: { $0.windowID == wid }),
-                      let f = w.frame else { print("no window \(wid)"); return 1 }
-                print(runner.run(action, on: w, current: f))
-            } else {
-                print(runner.run(action))
-            }
+            let engine = SnapEngine(distance: rest.dropFirst().first.flatMap(Double.init).map { CGFloat($0) } ?? 15)
+            let others = WindowList.onScreen().filter { $0.windowID != wid }.map(\.frame)
+            let screens = DisplayService.displays.flatMap { [$0.visibleFrame, $0.frame] }
+            let snapped = engine.snap(entry.frame, operation: .move, others: others, screens: screens)
+            print("from", entry.frame, "to", snapped)
+            AX.set(window.element, kAXPositionAttribute, point: snapped.origin)
         default:
-            print("usage: WindowManagerApp [--status | --list-windows [--all] | --list-displays | --list-spaces | --action <name> [--window <wid>]]")
+            print("usage: WindowManagerApp [--status | --list-windows [--all] | --list-displays | --list-spaces | --snap <wid> [distance]]")
             return 2
         }
         return 0
