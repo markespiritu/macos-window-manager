@@ -162,7 +162,6 @@ final class SettingsTests: XCTestCase {
         XCTAssertTrue(s.snappingEnabled)
         XCTAssertEqual(s.snapDistance, 10)
         XCTAssertEqual(s.releaseDistance, 10)
-        XCTAssertFalse(s.snapOnlyWhenSlow)
         s.snapDistance = 25
         s.snapToWindows = false
         let r = SettingsStore(defaults: d)
@@ -224,15 +223,6 @@ final class SnapSessionTests: XCTestCase {
         // Coming back, it catches again only within the catch distance.
         XCTAssertEqual(s.update(CGRect(origin: CGPoint(x: 490, y: 400), size: w)).maxX, 990)
         XCTAssertEqual(s.update(CGRect(origin: CGPoint(x: 493, y: 400), size: w)).maxX, 1000)
-    }
-
-    func testCannotAttachWhileFastButKeepsExistingAttachment() {
-        var s = session(others: [a])
-        let w = CGSize(width: 500, height: 300)
-        let near = CGRect(origin: CGPoint(x: 495, y: 400), size: w)
-        XCTAssertEqual(s.update(near, canAttach: false), near) // moving fast: glides past
-        XCTAssertEqual(s.update(near).maxX, 1000)              // slowed down: catches
-        XCTAssertEqual(s.update(near.offsetBy(dx: -5, dy: 0), canAttach: false).maxX, 1000) // stays held
     }
 
     func testRawFrameFromMouse() {

@@ -77,7 +77,6 @@ private struct SnappingSettings: View {
                 LabeledContent("Pull-off distance") {
                     PointsField(value: $settings.releaseDistance)
                 }
-                Toggle("Only snap when the window slows down", isOn: $settings.snapOnlyWhenSlow)
                 Toggle("Snap to screen edges", isOn: $settings.snapToScreenEdges)
                 Toggle("Snap to other windows", isOn: $settings.snapToWindows)
             } footer: {

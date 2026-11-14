@@ -12,8 +12,6 @@ public final class SettingsStore: ObservableObject {
     @Published public var snapDistance: Double { didSet { defaults.set(snapDistance, forKey: "snapDistance") } }
     /// How far a snapped edge must be pulled before it lets go.
     @Published public var releaseDistance: Double { didSet { defaults.set(releaseDistance, forKey: "releaseDistance") } }
-    /// Fast drags glide past edges; snapping only catches when the window slows down.
-    @Published public var snapOnlyWhenSlow: Bool { didSet { defaults.set(snapOnlyWhenSlow, forKey: "snapOnlyWhenSlow") } }
     @Published public var snapToScreenEdges: Bool { didSet { defaults.set(snapToScreenEdges, forKey: "snapToScreenEdges") } }
     @Published public var snapToWindows: Bool { didSet { defaults.set(snapToWindows, forKey: "snapToWindows") } }
 
@@ -22,7 +20,6 @@ public final class SettingsStore: ObservableObject {
         snappingEnabled = defaults.object(forKey: "snappingEnabled") as? Bool ?? true
         snapDistance = defaults.object(forKey: "snapDistance") as? Double ?? 10
         releaseDistance = defaults.object(forKey: "releaseDistance") as? Double ?? 10
-        snapOnlyWhenSlow = defaults.object(forKey: "snapOnlyWhenSlow") as? Bool ?? false
         snapToScreenEdges = defaults.object(forKey: "snapToScreenEdges") as? Bool ?? true
         snapToWindows = defaults.object(forKey: "snapToWindows") as? Bool ?? true
     }

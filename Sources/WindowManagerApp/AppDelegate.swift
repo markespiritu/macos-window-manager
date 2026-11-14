@@ -31,9 +31,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
                 self.snapper.engine = self.settings.snapEngine
             }
             .store(in: &cancellables)
-        settings.$snapOnlyWhenSlow
-            .sink { [weak self] on in self?.snapper.catchOnlyWhenSlow = on }
-            .store(in: &cancellables)
         settings.$snappingEnabled
             .sink { [weak self] on in self?.snapper.isEnabled = on }
             .store(in: &cancellables)

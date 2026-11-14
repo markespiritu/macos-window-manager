@@ -8,8 +8,6 @@ import CoreGraphics
 /// - while attached, the window stays on that target and every other target is ignored, until the
 ///   raw frame has pulled more than the release distance away from it. Only then is it detached,
 ///   and only then does it start looking for new targets.
-/// The caller can also hold off new attachments (`canAttach: false`) while the window is moving
-/// fast, so it glides past edges and only catches when the user slows down near one.
 /// That keeps a window from hopping between nearby targets while being pulled off one.
 public struct SnapSession {
     public let engine: SnapEngine
@@ -30,7 +28,7 @@ public struct SnapSession {
     public var isAttached: Bool { !attachments.isEmpty }
 
     /// The frame the window should have for this raw frame.
-    public mutating func update(_ raw: CGRect, canAttach: Bool = true) -> CGRect {
+    public mutating func update(_ raw: CGRect) -> CGRect {
         guard engine.distance > 0 else { return raw }
         let moving = engine.moving(operation)
         var r = raw
@@ -48,7 +46,7 @@ public struct SnapSession {
             }
             // Search from the frame snapped so far, so an x attachment counts as "side by side" when
             // looking for y alignment even if the raw frame has drifted off it.
-            if canAttach, let a = engine.bestAttachment(axis: axis, frame: r, moving: moving, others: others, screens: screens) {
+            if let a = engine.bestAttachment(axis: axis, frame: r, moving: moving, others: others, screens: screens) {
                 attachments[axis] = a
                 let d = a.target - engine.edge(r, axis, low: a.low)
                 r = engine.apply(d, axis: axis, to: r, operation: operation, moving: moving)
