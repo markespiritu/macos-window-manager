@@ -1,0 +1,91 @@
+import CoreGraphics
+import XCTest
+@testable import WindowManagerCore
+
+final class ZoneLayoutTests: XCTestCase {
+    let screen = CGRect(x: 0, y: 25, width: 1200, height: 800)
+
+    func testColumnsWithSpacing() {
+        let rects = ZoneTemplate.columns.root(zones: 3).zoneRects(in: screen, spacing: 10)
+        XCTAssertEqual(rects.count, 3)
+        XCTAssertEqual(rects[0].minX, 10)
+        XCTAssertEqual(rects[2].maxX, 1190)
+        XCTAssertEqual(rects[1].minX - rects[0].maxX, 10, accuracy: 1)
+        XCTAssertEqual(rects[0].minY, 35)
+        XCTAssertEqual(rects[0].height, 780)
+    }
+
+    func testGridAndPriorityGridCounts() {
+        for n in 1...9 {
+            XCTAssertEqual(ZoneTemplate.grid.root(zones: n).zoneCount, n, "grid \(n)")
+            XCTAssertEqual(ZoneTemplate.priorityGrid.root(zones: n).zoneCount, n, "priority \(n)")
+        }
+        let p = ZoneTemplate.priorityGrid.root(zones: 3).zoneRects(in: screen)
+        XCTAssertEqual(p[1].width, 600) // middle gets half
+    }
+
+    func testSplitSameAxisAddsSibling() {
+        var root = ZoneTemplate.columns.root(zones: 2)
+        root.split(zone: 1, along: .columns)
+        XCTAssertEqual(root.children.count, 3)
+        XCTAssertEqual(root.fractions, [0.5, 0.25, 0.25])
+        root.split(zone: 0, along: .rows)
+        XCTAssertEqual(root.zoneCount, 4)
+        XCTAssertEqual(root.children[0].axis, .rows)
+    }
+
+    func testRemoveGivesSpaceToNeighbourAndCollapses() {
+        var root = ZoneTemplate.columns.root(zones: 2)
+        root.split(zone: 1, along: .rows) // [A | B/C]
+        root.remove(zone: 2)               // [A | B]
+        XCTAssertEqual(root.zoneCount, 2)
+        XCTAssertEqual(root.axis, .columns)
+        XCTAssertTrue(root.children.allSatisfy(\.isLeaf))
+        root.remove(zone: 0)
+        XCTAssertTrue(root.isLeaf)
+        root.remove(zone: 0) // the last zone stays
+        XCTAssertEqual(root.zoneCount, 1)
+    }
+
+    func testMoveDivider() {
+        var root = ZoneTemplate.columns.root(zones: 2)
+        let d = root.dividers(in: screen, spacing: 10)[0]
+        root.move(d, to: 400, spacing: 10)
+        let rects = root.zoneRects(in: screen, spacing: 10)
+        XCTAssertEqual(rects[0].maxX, 395, accuracy: 1)
+        XCTAssertEqual(rects[1].minX, 405, accuracy: 1)
+        root.move(d, to: -1000, spacing: 10)
+        XCTAssertEqual(root.fractions[0], 0.05, accuracy: 0.001) // clamped
+    }
+
+    func testCodableRoundTrip() throws {
+        let layout = ZoneTemplate.priorityGrid.layout(zones: 5)
+        let back = try JSONDecoder().decode(ZoneLayout.self, from: JSONEncoder().encode(layout))
+        XCTAssertEqual(back, layout)
+    }
+}
+
+final class ZonePickerTests: XCTestCase {
+    let rects = ZoneTemplate.grid.root(zones: 4).zoneRects(in: CGRect(x: 0, y: 0, width: 1000, height: 800), spacing: 10)
+
+    func testInsideZone() {
+        XCTAssertEqual(ZonePicker.zones(at: CGPoint(x: 200, y: 200), in: rects), [0])
+        XCTAssertEqual(ZonePicker.zones(at: CGPoint(x: 800, y: 600), in: rects), [3])
+    }
+
+    func testBorderSpansBoth() {
+        // In the gap between the two top zones.
+        XCTAssertEqual(Set(ZonePicker.zones(at: CGPoint(x: 500, y: 200), in: rects)), [0, 1])
+        XCTAssertEqual(ZonePicker.zones(at: CGPoint(x: 500, y: 200), in: rects, spanAdjacent: false).count, 1)
+    }
+
+    func testSpanFillsBox() {
+        XCTAssertEqual(ZonePicker.span([0, 3], in: rects), [0, 1, 2, 3])
+        XCTAssertEqual(ZonePicker.span([0, 1], in: rects), [0, 1])
+    }
+
+    func testZoneContaining() {
+        XCTAssertEqual(ZonePicker.zone(containing: rects[2].insetBy(dx: 5, dy: 5), in: rects), 2)
+        XCTAssertNil(ZonePicker.zone(containing: CGRect(x: 0, y: 0, width: 1000, height: 800), in: rects))
+    }
+}

@@ -16,9 +16,14 @@ import AppKit
 @MainActor
 public final class SnapController {
     public var engine: SnapEngine
+    /// Runs the event tap. True when snapping or zones are on.
     public var isEnabled: Bool {
         didSet { isEnabled ? start() : stop() }
     }
+    /// Edge snapping. When off, drags are left to macOS (zones still work for moves).
+    public var snapping = true
+    /// Zones shown while moving a window (Shift held, by default).
+    public var zones: ZoneController?
     /// False until the event tap exists (it needs the Accessibility permission).
     public private(set) var isRunning = false
 
@@ -31,12 +36,17 @@ public final class SnapController {
     private struct DragState {
         let windowID: CGWindowID
         let pid: pid_t
-        let startFrame: CGRect
+        var startFrame: CGRect
         let startMouse: CGPoint
         var window: Window?
         var session: SnapSession?
         /// The frame this controller last gave the window.
         var placed: CGRect?
+        /// True when this controller moves the window itself (snapping on); false when macOS does.
+        var owns = false
+        /// The window's size changes on the next placement (restoring its pre-zone size).
+        var resize = false
+        var mouse: CGPoint
     }
 
     public init(engine: SnapEngine = SnapEngine(), isEnabled: Bool = true, service: WindowService = WindowService()) {
@@ -53,6 +63,7 @@ public final class SnapController {
         let mask: CGEventMask = (1 << CGEventType.leftMouseDown.rawValue)
             | (1 << CGEventType.leftMouseDragged.rawValue)
             | (1 << CGEventType.leftMouseUp.rawValue)
+            | (1 << CGEventType.flagsChanged.rawValue)
         let me = Unmanaged.passUnretained(self).toOpaque()
         guard let tap = CGEvent.tapCreate(tap: .cgSessionEventTap, place: .headInsertEventTap,
                                           options: .defaultTap, eventsOfInterest: mask,
@@ -74,6 +85,7 @@ public final class SnapController {
         tap = nil
         source = nil
         drag = nil
+        zones?.cancelDrag()
         isRunning = false
     }
 
@@ -87,9 +99,14 @@ public final class SnapController {
             mouseDown(at: event.location)
             return true
         case .leftMouseDragged:
-            return mouseDragged(to: event.location)
+            return mouseDragged(to: event.location, flags: event.flags)
         case .leftMouseUp:
-            mouseUp(at: event.location)
+            mouseUp(at: event.location, flags: event.flags)
+            return true
+        case .flagsChanged:
+            // Pressing or releasing Shift / Ctrl mid-drag shows, hides or spans zones at once,
+            // without waiting for the mouse to move.
+            if let d = drag, d.session?.operation == .move { zones?.update(mouse: d.mouse, flags: event.flags) }
             return true
         default:
             return true
@@ -98,25 +115,41 @@ public final class SnapController {
 
     private func mouseDown(at point: CGPoint) {
         drag = nil
+        zones?.cancelDrag()
         // This app's own windows (Settings) are snap targets but are left to macOS to drag: asking
         // our own process for its windows over Accessibility from inside the event tap callback
         // would wait on the very thread that is running the callback.
         guard let hit = WindowList.window(at: point, margin: 6),
               hit.pid != ProcessInfo.processInfo.processIdentifier else { return }
-        drag = DragState(windowID: hit.windowID, pid: hit.pid, startFrame: hit.frame, startMouse: point)
+        drag = DragState(windowID: hit.windowID, pid: hit.pid, startFrame: hit.frame, startMouse: point, mouse: point)
     }
 
-    private func mouseDragged(to mouse: CGPoint) -> Bool {
+    private func mouseDragged(to mouse: CGPoint, flags: CGEventFlags) -> Bool {
         guard var d = drag else { return true }
+        d.mouse = mouse
 
         if d.session == nil {
             // Wait for the window to start changing to know whether this is a move or a resize.
             guard let now = WindowList.frame(of: d.windowID),
                   let op = SnapEngine.Operation.detect(from: d.startFrame, to: now) else { drag = d; return true }
+            // Without snapping only moves matter (for zones), and macOS keeps doing the dragging.
+            guard snapping || (op == .move && zones != nil) else { drag = nil; return true }
             // Only take over windows we can actually place; otherwise leave the drag to macOS.
             guard let window = service.window(withID: d.windowID, pid: d.pid),
                   op == .move ? window.isMovable : window.isResizable else { drag = nil; return true }
             d.window = window
+            d.owns = snapping
+            if op == .move {
+                zones?.beginDrag()
+                // A window dragged out of a zone gets its old size back, keeping the point under
+                // the cursor at the same relative spot across the title bar.
+                if d.owns, let size = zones?.takeRestoreSize(d.windowID, current: d.startFrame) {
+                    let s = d.startFrame
+                    let x = d.startMouse.x - (d.startMouse.x - s.minX) * size.width / max(s.width, 1)
+                    d.startFrame = CGRect(x: x, y: s.minY, width: size.width, height: size.height)
+                    d.resize = true
+                }
+            }
             let others = WindowList.onScreen().filter { $0.windowID != d.windowID }.map(\.frame)
             let screens = DisplayService.displays.map(\.visibleFrame)
             d.session = SnapSession(engine: engine, operation: op, others: others, screens: screens)
@@ -128,9 +161,15 @@ public final class SnapController {
         // snapped. There is no hand-over between macOS and the snapper, so nothing jumps.
         let raw = Self.rawFrame(start: d.startFrame, operation: session.operation,
                                 dx: mouse.x - d.startMouse.x, dy: mouse.y - d.startMouse.y)
-        let target = session.update(raw)
+        let inZones = session.operation == .move && zones?.update(mouse: mouse, flags: flags) != nil
+        guard d.owns else { drag = d; return true }
+        // Over zones the window just follows the mouse; it goes into the zone on release.
+        let target = inZones ? raw : session.update(raw)
         d.session = session
-        if target != d.placed { place(window, at: target, operation: session.operation) }
+        if target != d.placed {
+            place(window, at: target, operation: d.resize ? .resize([.left, .top]) : session.operation)
+            d.resize = false
+        }
         d.placed = target
         drag = d
         return false
@@ -138,9 +177,21 @@ public final class SnapController {
 
     /// Places the window one last time for where the mouse was released (a fast drag that stops
     /// next to an edge still snaps), then lets the release through so the app ends its drag.
-    private func mouseUp(at mouse: CGPoint) {
+    private func mouseUp(at mouse: CGPoint, flags: CGEventFlags) {
         defer { drag = nil }
         guard let d = drag, var session = d.session, let window = d.window else { return }
+        if session.operation == .move, let zone = zones?.endDrag(mouse: mouse, flags: flags) {
+            if d.owns {
+                placer.place(window, frame: zone)
+            } else {
+                // macOS is still ending its own drag; place the window once it has let go.
+                let placer = placer
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { placer.place(window, frame: zone) }
+            }
+            zones?.didZone(d.windowID, original: d.startFrame.size, placed: zone)
+            return
+        }
+        guard d.owns else { return }
         let raw = Self.rawFrame(start: d.startFrame, operation: session.operation,
                                 dx: mouse.x - d.startMouse.x, dy: mouse.y - d.startMouse.y)
         let target = session.update(raw)
@@ -177,7 +228,8 @@ final class WindowPlacer: @unchecked Sendable {
     private struct Request {
         let window: Window
         let frame: CGRect
-        let operation: SnapEngine.Operation
+        /// nil: set position and size (a window going into a zone).
+        let operation: SnapEngine.Operation?
     }
 
     private let queue = DispatchQueue(label: "io.marky.windowmanager.placer", qos: .userInteractive)
@@ -185,9 +237,23 @@ final class WindowPlacer: @unchecked Sendable {
     private var pending: Request?
     private var draining = false
 
+    func place(_ window: Window, frame: CGRect) {
+        enqueue(Request(window: window, frame: frame, operation: nil))
+    }
+
     func place(_ window: Window, at frame: CGRect, operation: SnapEngine.Operation) {
+        enqueue(Request(window: window, frame: frame, operation: operation))
+    }
+
+    private func enqueue(_ request: Request) {
         lock.lock()
-        pending = Request(window: window, frame: frame, operation: operation)
+        // Never let a plain move overwrite a pending request that also sets the size (the first
+        // placement after restoring a window's pre-zone size), or the new size would be lost.
+        if let p = pending, p.operation != .move, request.operation == .move {
+            pending = Request(window: request.window, frame: request.frame, operation: p.operation)
+        } else {
+            pending = request
+        }
         let start = !draining
         draining = true
         lock.unlock()
@@ -206,6 +272,12 @@ final class WindowPlacer: @unchecked Sendable {
 
     private func apply(_ r: Request) {
         switch r.operation {
+        case nil:
+            // Size, position, size, as in WindowService.setFrame: fits the window at the new
+            // position, then fixes a size the app clamped at the old one.
+            AX.set(r.window.element, kAXSizeAttribute, size: r.frame.size)
+            AX.set(r.window.element, kAXPositionAttribute, point: r.frame.origin)
+            AX.set(r.window.element, kAXSizeAttribute, size: r.frame.size)
         case .move:
             AX.set(r.window.element, kAXPositionAttribute, point: r.frame.origin)
         case .resize(let edges):

@@ -1,4 +1,5 @@
 import AppKit
+import Carbon.HIToolbox
 import Combine
 import SwiftUI
 import WindowManagerCore
@@ -8,7 +9,10 @@ import WindowManagerCore
 final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
     let settings = SettingsStore()
     let permission = AccessibilityPermission()
+    let zoneStore = ZoneStore()
     private(set) var snapper: SnapController!
+    private(set) var zones: ZoneController!
+    private let hotkeys = HotkeyCenter()
 
     private var menuBar: MenuBarController!
     private var onboarding: NSWindow?
@@ -16,7 +20,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
     private var cancellables: Set<AnyCancellable> = []
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        snapper = SnapController(engine: settings.snapEngine, isEnabled: settings.snappingEnabled)
+        zones = ZoneController(store: zoneStore)
+        snapper = SnapController(engine: settings.snapEngine, isEnabled: settings.snappingEnabled || zoneStore.enabled)
+        snapper.snapping = settings.snappingEnabled
+        snapper.zones = zones
         menuBar = MenuBarController(app: self)
 
         // Any snapping setting change rebuilds the engine (on the next run loop pass, after the
@@ -31,8 +38,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
                 self.snapper.engine = self.settings.snapEngine
             }
             .store(in: &cancellables)
-        settings.$snappingEnabled
-            .sink { [weak self] on in self?.snapper.isEnabled = on }
+        // The event tap runs while either snapping or zones need it.
+        settings.$snappingEnabled.combineLatest(zoneStore.$enabled)
+            .sink { [weak self] snap, zones in
+                guard let self else { return }
+                self.snapper.snapping = snap
+                if self.snapper.isEnabled != (snap || zones) { self.snapper.isEnabled = snap || zones }
+                self.updateHotkeys(zones: zones)
+            }
             .store(in: &cancellables)
         permission.$isGranted
             .removeDuplicates()
@@ -53,6 +66,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         if permission.isGranted { showSettings() } else { showOnboarding() }
         return false
+    }
+
+    // MARK: Hotkeys
+
+    /// ⌃⌥⌘1–9 picks a layout for the current display, ⌃⌥⌘← / → moves the focused window between
+    /// zones. Only registered while zones are on.
+    private func updateHotkeys(zones on: Bool) {
+        guard on else { hotkeys.setBindings([]); return }
+        let mods = UInt32(controlKey | optionKey | cmdKey)
+        let digits = [kVK_ANSI_1, kVK_ANSI_2, kVK_ANSI_3, kVK_ANSI_4, kVK_ANSI_5, kVK_ANSI_6, kVK_ANSI_7, kVK_ANSI_8, kVK_ANSI_9]
+        var bindings = digits.enumerated().map { i, key in
+            HotkeyCenter.Binding(id: "zones.layout.\(i + 1)", combo: KeyCombo(keyCode: UInt32(key), modifiers: mods)) { [weak self] in
+                self?.zones.applyLayout(at: i)
+            }
+        }
+        bindings.append(HotkeyCenter.Binding(id: "zones.next", combo: KeyCombo(keyCode: UInt32(kVK_RightArrow), modifiers: mods)) { [weak self] in
+            self?.zones.moveFocusedWindow(by: 1)
+        })
+        bindings.append(HotkeyCenter.Binding(id: "zones.previous", combo: KeyCombo(keyCode: UInt32(kVK_LeftArrow), modifiers: mods)) { [weak self] in
+            self?.zones.moveFocusedWindow(by: -1)
+        })
+        let failed = hotkeys.setBindings(bindings)
+        if !failed.isEmpty { NSLog("Window Manager: could not register hotkeys %@", failed.joined(separator: ", ")) }
     }
 
     // MARK: Windows
