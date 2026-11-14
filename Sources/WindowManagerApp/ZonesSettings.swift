@@ -259,6 +259,12 @@ private struct ZoneCanvas: View {
                 ForEach(dividers) { d in
                     divider(d, spacing: spacing)
                 }
+                // Measuring rulers for the zone being dragged, else the one under the mouse.
+                if let a = activeZone, real.indices.contains(a) {
+                    Rulers(measures: ZoneRuler.measures(for: a, in: real, screen: CGRect(origin: .zero, size: screen)), scale: scale)
+                        .frame(width: size.width, height: size.height)
+                        .allowsHitTesting(false)
+                }
             }
             .frame(width: size.width, height: size.height)
             .coordinateSpace(name: "canvas")
@@ -346,6 +352,12 @@ private struct ZoneCanvas: View {
         } else {
             NSSound.beep() // e.g. the height of a zone that already fills the screen top to bottom
         }
+    }
+
+    /// The zone whose distances the rulers show.
+    private var activeZone: Int? {
+        if let id = floatDrag?.id, let k = layout.floating.firstIndex(where: { $0.id == id }) { return layout.root.zoneCount + k }
+        return hovered
     }
 
     private func label(_ i: Int, _ r: CGRect, real: CGRect) -> some View {
@@ -480,5 +492,46 @@ private struct ZoneCanvas: View {
                 layout.root.move(d, to: d.axis == .columns ? v.location.x : v.location.y, spacing: spacing)
             })
             .position(x: hit.midX, y: hit.midY) // last: modifiers after .position would cover the whole canvas
+    }
+}
+
+
+/// Dimension lines from a zone's edges to the nearest edge in each direction, with the distance
+/// in points (like a design tool's measuring guides).
+private struct Rulers: View {
+    let measures: [ZoneRuler.Measure]
+    /// Canvas points per display point.
+    let scale: CGFloat
+
+    var body: some View {
+        Canvas { ctx, _ in
+            let color = Color.yellow
+            for m in measures {
+                let a = CGPoint(x: m.from.x * scale, y: m.from.y * scale)
+                let b = CGPoint(x: m.to.x * scale, y: m.to.y * scale)
+                let horizontal = m.side == .left || m.side == .right
+                var line = Path()
+                line.move(to: a)
+                line.addLine(to: b)
+                ctx.stroke(line, with: .color(color), style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
+                // End ticks.
+                var ticks = Path()
+                for p in [a, b] {
+                    if horizontal {
+                        ticks.move(to: CGPoint(x: p.x, y: p.y - 5)); ticks.addLine(to: CGPoint(x: p.x, y: p.y + 5))
+                    } else {
+                        ticks.move(to: CGPoint(x: p.x - 5, y: p.y)); ticks.addLine(to: CGPoint(x: p.x + 5, y: p.y))
+                    }
+                }
+                ctx.stroke(ticks, with: .color(color), lineWidth: 1.5)
+                // The distance, on a dark pill in the middle of the line.
+                let mid = CGPoint(x: (a.x + b.x) / 2, y: (a.y + b.y) / 2)
+                let text = ctx.resolve(Text(verbatim: "\(Int(m.distance.rounded()))").font(.system(size: 11, weight: .semibold)).monospacedDigit().foregroundColor(.black))
+                let ts = text.measure(in: CGSize(width: 200, height: 40))
+                let pill = CGRect(x: mid.x - ts.width / 2 - 5, y: mid.y - ts.height / 2 - 2, width: ts.width + 10, height: ts.height + 4)
+                ctx.fill(Path(roundedRect: pill, cornerRadius: pill.height / 2), with: .color(color))
+                ctx.draw(text, at: mid)
+            }
+        }
     }
 }

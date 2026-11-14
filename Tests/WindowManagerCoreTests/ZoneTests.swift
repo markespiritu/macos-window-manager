@@ -172,3 +172,19 @@ final class ZoneSizeEditTests: XCTestCase {
         XCTAssertEqual(f.maxX, 1200, accuracy: 1) // pushed back on screen
     }
 }
+
+final class ZoneRulerTests: XCTestCase {
+    func testDistancesToScreenAndNeighbours() {
+        let screen = CGRect(x: 0, y: 0, width: 1000, height: 800)
+        let rects = [CGRect(x: 0, y: 0, width: 500, height: 800),      // left column
+                     CGRect(x: 500, y: 0, width: 500, height: 800),    // right column
+                     CGRect(x: 100, y: 200, width: 300, height: 300)]  // free zone inside the left column
+        let m = Dictionary(uniqueKeysWithValues: ZoneRuler.measures(for: 2, in: rects, screen: screen).map { ($0.side.rawValue, $0.distance) })
+        XCTAssertEqual(m[Edges.left.rawValue], 100)
+        XCTAssertEqual(m[Edges.right.rawValue], 100)   // to the column line at 500
+        XCTAssertEqual(m[Edges.top.rawValue], 200)
+        XCTAssertEqual(m[Edges.bottom.rawValue], 300)
+        // The left column touches the screen on three sides: only its right side has... nothing either.
+        XCTAssertTrue(ZoneRuler.measures(for: 0, in: rects, screen: screen).isEmpty)
+    }
+}

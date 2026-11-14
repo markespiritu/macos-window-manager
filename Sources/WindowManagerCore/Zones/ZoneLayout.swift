@@ -400,3 +400,38 @@ public enum GuideSnap {
         return CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
     }
 }
+
+/// Distances from a zone's edges to the nearest edge in each direction (another zone's edge, or
+/// the screen's), for the editor's measuring rulers.
+public enum ZoneRuler {
+    public struct Measure: Hashable, Sendable {
+        /// Which side of the zone this measures from.
+        public let side: Edges
+        public let from: CGPoint
+        public let to: CGPoint
+        public var distance: CGFloat { abs(to.x - from.x) + abs(to.y - from.y) }
+    }
+
+    /// Measures for zone `i`. Only edges of zones that line up with it (overlap it across the
+    /// measuring direction) count, so the ruler meets something that is really beside it.
+    /// Sides that touch something (distance under 1 pt) are left out.
+    public static func measures(for i: Int, in rects: [CGRect], screen: CGRect) -> [Measure] {
+        guard rects.indices.contains(i) else { return [] }
+        let r = rects[i]
+        let others = rects.indices.filter { $0 != i }.map { rects[$0] }
+        let beside = others.filter { $0.minY < r.maxY && $0.maxY > r.minY } // left / right
+        let stacked = others.filter { $0.minX < r.maxX && $0.maxX > r.minX } // above / below
+        let xs = beside.flatMap { [$0.minX, $0.maxX] }, ys = stacked.flatMap { [$0.minY, $0.maxY] }
+        let tol: CGFloat = 0.5
+        var out: [Measure] = []
+        let left = (xs.filter { $0 <= r.minX + tol } + [screen.minX]).max()!
+        let right = (xs.filter { $0 >= r.maxX - tol } + [screen.maxX]).min()!
+        let top = (ys.filter { $0 <= r.minY + tol } + [screen.minY]).max()!
+        let bottom = (ys.filter { $0 >= r.maxY - tol } + [screen.maxY]).min()!
+        out.append(Measure(side: .left, from: CGPoint(x: r.minX, y: r.midY), to: CGPoint(x: left, y: r.midY)))
+        out.append(Measure(side: .right, from: CGPoint(x: r.maxX, y: r.midY), to: CGPoint(x: right, y: r.midY)))
+        out.append(Measure(side: .top, from: CGPoint(x: r.midX, y: r.minY), to: CGPoint(x: r.midX, y: top)))
+        out.append(Measure(side: .bottom, from: CGPoint(x: r.midX, y: r.maxY), to: CGPoint(x: r.midX, y: bottom)))
+        return out.filter { $0.distance >= 1 }
+    }
+}
