@@ -103,6 +103,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
             let view = SettingsView(app: self, settings: settings, permission: permission)
             let w = makeWindow(title: "Settings", content: view)
             w.isReleasedWhenClosed = false
+            // Resizable, so the zone editor can be made large; the content sets only a minimum.
+            (w.contentViewController as? NSHostingController<SettingsView>)?.sizingOptions = [.minSize]
+            w.styleMask.insert(.resizable)
+            w.setContentSize(NSSize(width: 900, height: 760))
+            w.center()
+            w.setFrameAutosaveName("Settings") // restores the last size and place, if any
             settingsWindow = w
         }
         present(settingsWindow!)

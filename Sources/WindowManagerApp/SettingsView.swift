@@ -17,7 +17,7 @@ struct SettingsView: View {
             ZonesSettings(store: app.zoneStore)
                 .tabItem { Label("Zones", systemImage: "rectangle.split.3x1") }
         }
-        .frame(width: 700, height: 600)
+        .frame(minWidth: 700, maxWidth: .infinity, minHeight: 600, maxHeight: .infinity)
     }
 }
 

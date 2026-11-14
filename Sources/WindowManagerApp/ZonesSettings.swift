@@ -106,8 +106,10 @@ struct ZonesSettings: View {
                         Text("Your custom layouts are deleted and every display goes back to the first default layout.")
                     }
             }
-            ScrollView(.horizontal) {
-                HStack(spacing: 10) {
+            // Wraps onto more rows as layouts are added, so none end up out of sight.
+            do {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 50 * aspect(display) + 20), spacing: 10, alignment: .top)],
+                          alignment: .leading, spacing: 8) {
                     ForEach(Array(store.layouts.enumerated()), id: \.element.id) { i, layout in
                         LayoutThumbnail(layout: layout, index: i,
                                         selected: store.layout(for: display)?.id == layout.id,
@@ -119,6 +121,8 @@ struct ZonesSettings: View {
             }
         }
     }
+
+    private func aspect(_ d: Display) -> CGFloat { d.visibleFrame.width / max(d.visibleFrame.height, 1) }
 
     private func binding(for id: UUID, fallback: ZoneLayout) -> Binding<ZoneLayout> {
         Binding(get: { store.layout(id: id) ?? fallback }, set: { store.update($0) })
