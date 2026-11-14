@@ -8,6 +8,7 @@ struct ZonesSettings: View {
     @State private var displays = DisplayService.displays
     @State private var displayID: CGDirectDisplayID = DisplayService.displays.first?.id ?? 0
     @State private var confirmDelete = false
+    @State private var confirmReset = false
 
     private var display: Display? { displays.first { $0.id == displayID } ?? displays.first }
 
@@ -98,6 +99,12 @@ struct ZonesSettings: View {
                     Label("New Layout", systemImage: "plus")
                 }
                 .fixedSize()
+                Button("Reset to Defaults…") { confirmReset = true }
+                    .confirmationDialog("Reset all zone layouts?", isPresented: $confirmReset) {
+                        Button("Reset Layouts", role: .destructive) { store.resetLayouts() }
+                    } message: {
+                        Text("Your custom layouts are deleted and every display goes back to the first default layout.")
+                    }
             }
             ScrollView(.horizontal) {
                 HStack(spacing: 10) {
@@ -168,7 +175,7 @@ private struct LayoutEditor: View {
                     .help("Delete this layout")
             }
             ZoneCanvas(layout: $layout, screen: screen)
-            Text("Click a zone to split it side by side, ⇧-click to split it top and bottom. Drag the lines between zones to resize them. Right-click a zone to remove it.")
+            Text("Right-click a zone to split or remove it. Drag the lines between zones to resize them. Sizes are in points on this display, and as a share of the screen.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -190,13 +197,15 @@ private struct ZoneCanvas: View {
             let spacing = CGFloat(layout.spacing) * scale
             let rects = layout.root.zoneRects(in: rect, spacing: spacing)
             let dividers = layout.root.dividers(in: rect, spacing: spacing)
+            // The zones' real sizes on the display, in points.
+            let real = layout.zoneRects(in: CGRect(origin: .zero, size: screen))
 
             ZStack(alignment: .topLeading) {
                 RoundedRectangle(cornerRadius: 6)
                     .fill(Color.black.opacity(0.25))
                     .frame(width: size.width, height: size.height)
                 ForEach(rects.indices, id: \.self) { i in
-                    zone(i, rects[i])
+                    zone(i, rects[i], real: real.indices.contains(i) ? real[i] : .zero)
                 }
                 ForEach(dividers) { d in
                     divider(d, spacing: spacing)
@@ -209,19 +218,27 @@ private struct ZoneCanvas: View {
         .frame(minHeight: 200)
     }
 
-    private func zone(_ i: Int, _ r: CGRect) -> some View {
+    private func zone(_ i: Int, _ r: CGRect, real: CGRect) -> some View {
         let on = hovered == i
+        let pw = Int((real.width / max(screen.width, 1) * 100).rounded())
+        let ph = Int((real.height / max(screen.height, 1) * 100).rounded())
         return RoundedRectangle(cornerRadius: 5)
             .fill(Color.accentColor.opacity(on ? 0.5 : 0.3))
             .overlay(RoundedRectangle(cornerRadius: 5).stroke(Color.accentColor, lineWidth: on ? 2 : 1))
-            .overlay(Text("\(i + 1)").font(.system(size: min(max(min(r.width, r.height) / 4, 11), 28), weight: .semibold)).foregroundStyle(.white))
+            .overlay(
+                VStack(spacing: 2) {
+                    Text("\(i + 1)").font(.system(size: min(max(min(r.width, r.height) / 5, 11), 24), weight: .semibold))
+                    if r.width > 70 && r.height > 50 {
+                        Text(verbatim: "\(Int(real.width)) × \(Int(real.height))").font(.system(size: 11, weight: .medium)).monospacedDigit()
+                        Text(verbatim: "\(pw)% × \(ph)%").font(.system(size: 10)).monospacedDigit().opacity(0.8)
+                    }
+                }
+                .foregroundStyle(.white)
+            )
             .frame(width: max(r.width, 1), height: max(r.height, 1))
             .offset(x: r.minX, y: r.minY)
             .onHover { hovered = $0 ? i : (hovered == i ? nil : hovered) }
-            .onTapGesture {
-                let rows = NSEvent.modifierFlags.contains(.shift)
-                layout.root.split(zone: i, along: rows ? .rows : .columns)
-            }
+            .help("Zone \(i + 1): \(Int(real.width)) × \(Int(real.height)) pt (\(pw)% × \(ph)% of the screen)")
             .contextMenu {
                 Button("Split Side by Side") { layout.root.split(zone: i, along: .columns) }
                 Button("Split Top and Bottom") { layout.root.split(zone: i, along: .rows) }

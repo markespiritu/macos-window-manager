@@ -129,6 +129,12 @@ public final class ZoneStore: ObservableObject {
         return layout
     }
 
+    /// Replaces every layout with the defaults and clears the per-display choices.
+    public func resetLayouts() {
+        layouts = Self.defaultLayouts
+        assignments = [:]
+    }
+
     public func delete(_ id: UUID) {
         guard layouts.count > 1 else { return }
         layouts.removeAll { $0.id == id }
