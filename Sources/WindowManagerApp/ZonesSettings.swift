@@ -56,6 +56,7 @@ struct ZonesSettings: View {
                 Picker("Where zones overlap", selection: $store.overlapRule) {
                     Text("Use the smallest zone").tag(ZoneOverlapRule.smallest)
                     Text("Use the top-most zone").tag(ZoneOverlapRule.topmost)
+                    Text("Use the zone whose centre is closest").tag(ZoneOverlapRule.closestCenter)
                 }
                 .fixedSize()
                 Toggle("Span zones at borders", isOn: $store.spanAdjacentZones)

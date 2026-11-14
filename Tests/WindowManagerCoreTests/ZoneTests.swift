@@ -201,3 +201,19 @@ final class ZoneNudgeTests: XCTestCase {
         XCTAssertFalse(l.move(zone: 0, dx: 1, dy: 0, in: screen)) // split zones don't move
     }
 }
+
+final class ClosestCenterTests: XCTestCase {
+    /// A wide middle zone fully covered by two smaller side zones (Marky's layout).
+    func testCoveredMiddleZoneIsReachable() {
+        let screen = CGRect(x: 0, y: 0, width: 1000, height: 1000)
+        var l = ZoneTemplate.columns.layout(zones: 2, spacing: 0)
+        l.floating = [FloatingZone(rect: CGRect(x: 0.1, y: 0.15, width: 0.4, height: 0.6)),
+                      FloatingZone(rect: CGRect(x: 0.5, y: 0.15, width: 0.4, height: 0.6)),
+                      FloatingZone(rect: CGRect(x: 0.2, y: 0.25, width: 0.6, height: 0.45))]
+        let rects = l.zoneRects(in: screen), layers = l.zoneLayers
+        let mid = CGPoint(x: 500, y: 470)
+        XCTAssertNotEqual(ZonePicker.zones(at: mid, in: rects, layers: layers, rule: .smallest, spanAdjacent: false), [4])
+        XCTAssertEqual(ZonePicker.zones(at: mid, in: rects, layers: layers, rule: .closestCenter, spanAdjacent: false), [4])
+        XCTAssertEqual(ZonePicker.zones(at: CGPoint(x: 250, y: 400), in: rects, layers: layers, rule: .closestCenter, spanAdjacent: false), [2])
+    }
+}
