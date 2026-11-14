@@ -34,6 +34,20 @@ When resizing, only the edge you drag snaps, so dragging the bottom of the short
 side-by-side windows close to the other's bottom gives them the same height. Snapping can be
 turned off from the menu bar.
 
+### Zones (FancyZones-style layouts)
+
+Each display has a zone layout. Hold Option (configurable: Shift, Command or Control) while moving a window to show its zones, and release
+over one to drop the window into it (Settings › Zones can show them on every drag instead). Hover
+the border between zones to span both; hold Control as well (Shift when Control is the zone key) to span every zone between where
+Control went down and the cursor. A window dragged out of a zone gets its previous size back.
+
+- ⌃⌥⌘← / → moves the focused window to the previous / next zone (on to the next display).
+
+Layouts are trees of splits (`ZoneNode`), so templates (Columns, Rows, Grid, Priority Grid) and
+custom layouts edit the same way in Settings › Zones: click a zone to split it, ⇧-click to split
+it the other way, drag the lines between zones, right-click to remove one. Layouts are assigned
+per display UUID in `ZoneStore`.
+
 ### Debug commands
 
 The executable doubles as a CLI that uses the calling terminal's Accessibility grant:
@@ -54,6 +68,7 @@ Sources/WindowManagerCore/      no UI; everything testable and reused by later p
   Geometry/   ScreenCoordinates (AppKit <-> AX flip)
   Windows/    Window handle, AX helpers, WindowControlling + WindowService, WindowList (CGWindowList)
   Snapping/   SnapEngine (pure snap math), SnapController (mouse drag monitor that applies it)
+  Zones/      ZoneLayout (split tree + templates), ZonePicker, ZoneStore, ZoneOverlay, ZoneController
   Displays/   Display (frames already in AX space), DisplayService
   Private/    SkyLight via dlsym (focus, Spaces) and _AXUIElementGetWindow
   Hotkeys/    KeyCombo, HotkeyCenter (Carbon RegisterEventHotKey; unused until layouts get shortcuts)
@@ -76,8 +91,8 @@ Conventions:
 | Phase | Builds on |
 |---|---|
 | 1. Foundation | menu bar app, onboarding, window control, hotkey plumbing, settings shell |
-| 2. Snapping (this) | `SnapEngine` + `SnapController`; Snapping settings tab |
-| 3. Predefined layouts + editor | `HotkeyCenter` ids per layout; a Layouts tab |
+| 2. Snapping | `SnapEngine` + `SnapController`; Snapping settings tab |
+| 3. Zones: predefined layouts + editor (this) | `ZoneLayout`, `ZoneController` (driven by `SnapController`'s drag), Zones tab |
 | 4. Multiple displays and Spaces | `DisplayService`, `SkyLight.managedDisplaySpaces` / `spaces(for:)` |
 | 5. Save and restore | `Window.windowID` + app bundle id as keys; persisted beside `SettingsStore` |
 | 6. Auto-tiling | `WindowControlling`; window created/destroyed observers |

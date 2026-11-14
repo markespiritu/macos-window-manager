@@ -1,4 +1,5 @@
 import AppKit
+import Carbon.HIToolbox
 import Combine
 import SwiftUI
 import WindowManagerCore
@@ -8,7 +9,10 @@ import WindowManagerCore
 final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
     let settings = SettingsStore()
     let permission = AccessibilityPermission()
+    let zoneStore = ZoneStore()
     private(set) var snapper: SnapController!
+    private(set) var zones: ZoneController!
+    private let hotkeys = HotkeyCenter()
 
     private var menuBar: MenuBarController!
     private var onboarding: NSWindow?
@@ -16,7 +20,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
     private var cancellables: Set<AnyCancellable> = []
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        snapper = SnapController(engine: settings.snapEngine, isEnabled: settings.snappingEnabled)
+        zones = ZoneController(store: zoneStore)
+        snapper = SnapController(engine: settings.snapEngine, isEnabled: settings.snappingEnabled || zoneStore.enabled)
+        snapper.snapping = settings.snappingEnabled
+        snapper.zones = zones
         menuBar = MenuBarController(app: self)
 
         // Any snapping setting change rebuilds the engine (on the next run loop pass, after the
@@ -31,8 +38,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
                 self.snapper.engine = self.settings.snapEngine
             }
             .store(in: &cancellables)
-        settings.$snappingEnabled
-            .sink { [weak self] on in self?.snapper.isEnabled = on }
+        // The event tap runs while either snapping or zones need it.
+        settings.$snappingEnabled.combineLatest(zoneStore.$enabled)
+            .sink { [weak self] snap, zones in
+                guard let self else { return }
+                self.snapper.snapping = snap
+                if self.snapper.isEnabled != (snap || zones) { self.snapper.isEnabled = snap || zones }
+                self.updateHotkeys(zones: zones)
+            }
             .store(in: &cancellables)
         permission.$isGranted
             .removeDuplicates()
@@ -55,6 +68,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         return false
     }
 
+    // MARK: Hotkeys
+
+    /// ⌃⌥⌘← / → moves the focused window between zones. Only registered while zones are on.
+    /// (No layout-switching hotkeys: Marky keeps ⌃⌥⌘1–9 for something else.)
+    private func updateHotkeys(zones on: Bool) {
+        guard on else { hotkeys.setBindings([]); return }
+        let mods = UInt32(controlKey | optionKey | cmdKey)
+        var bindings: [HotkeyCenter.Binding] = []
+        bindings.append(HotkeyCenter.Binding(id: "zones.next", combo: KeyCombo(keyCode: UInt32(kVK_RightArrow), modifiers: mods)) { [weak self] in
+            self?.zones.moveFocusedWindow(by: 1)
+        })
+        bindings.append(HotkeyCenter.Binding(id: "zones.previous", combo: KeyCombo(keyCode: UInt32(kVK_LeftArrow), modifiers: mods)) { [weak self] in
+            self?.zones.moveFocusedWindow(by: -1)
+        })
+        let failed = hotkeys.setBindings(bindings)
+        if !failed.isEmpty { NSLog("Window Manager: could not register hotkeys %@", failed.joined(separator: ", ")) }
+    }
+
     // MARK: Windows
 
     func showOnboarding() {
@@ -72,6 +103,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
             let view = SettingsView(app: self, settings: settings, permission: permission)
             let w = makeWindow(title: "Settings", content: view)
             w.isReleasedWhenClosed = false
+            // Resizable, so the zone editor can be made large; the content sets only a minimum.
+            (w.contentViewController as? NSHostingController<SettingsView>)?.sizingOptions = [.minSize]
+            w.styleMask.insert(.resizable)
+            w.setContentSize(NSSize(width: 900, height: 760))
+            w.center()
+            w.setFrameAutosaveName("Settings") // restores the last size and place, if any
             settingsWindow = w
         }
         present(settingsWindow!)
