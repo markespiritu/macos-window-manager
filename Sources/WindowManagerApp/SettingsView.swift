@@ -15,7 +15,7 @@ struct SettingsView: View {
             SnappingSettings(settings: settings)
                 .tabItem { Label("Snapping", systemImage: "rectangle.and.arrow.up.right.and.arrow.down.left") }
         }
-        .frame(width: 520, height: 380)
+        .frame(width: 520, height: 460)
     }
 }
 
@@ -77,10 +77,17 @@ private struct SnappingSettings: View {
                         Text("\(Int(settings.snapDistance)) pt").monospacedDigit().frame(width: 44, alignment: .trailing)
                     }
                 }
+                LabeledContent("Pull-off distance") {
+                    HStack {
+                        Slider(value: $settings.releaseDistance, in: max(4, settings.snapDistance)...80, step: 1).frame(width: 180)
+                        Text("\(Int(settings.releaseDistance)) pt").monospacedDigit().frame(width: 44, alignment: .trailing)
+                    }
+                }
+                Toggle("Only snap when the window slows down", isOn: $settings.snapOnlyWhenSlow)
                 Toggle("Snap to screen edges", isOn: $settings.snapToScreenEdges)
                 Toggle("Snap to other windows", isOn: $settings.snapToWindows)
             } footer: {
-                Text("Edges snap flush to screen edges and neighbouring windows. Windows that sit side by side also line up their tops and bottoms, including when you resize one of them.")
+                Text("Edges snap within the snap distance and stay snapped until pulled past the pull-off distance. Windows that sit side by side also line up their tops and bottoms, including when you resize one of them.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)

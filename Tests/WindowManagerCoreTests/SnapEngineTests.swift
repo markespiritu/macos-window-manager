@@ -145,11 +145,12 @@ final class SettingsTests: XCTestCase {
         let d = UserDefaults(suiteName: "WindowManagerTests.\(UUID().uuidString)")!
         let s = SettingsStore(defaults: d)
         XCTAssertTrue(s.snappingEnabled)
-        XCTAssertEqual(s.snapDistance, 15)
+        XCTAssertEqual(s.snapDistance, 8)
+        XCTAssertEqual(s.releaseDistance, 24)
         s.snapDistance = 25
         s.snapToWindows = false
         let r = SettingsStore(defaults: d)
-        XCTAssertEqual(r.snapEngine, SnapEngine(distance: 25, snapToScreen: true, snapToWindows: false))
+        XCTAssertEqual(r.snapEngine, SnapEngine(distance: 25, releaseDistance: 25, snapToScreen: true, snapToWindows: false))
     }
 }
 
@@ -195,6 +196,27 @@ final class SnapSessionTests: XCTestCase {
         let r = s.update(CGRect(origin: CGPoint(x: 497, y: 600), size: w))
         XCTAssertEqual(r.maxX, 1000)
         XCTAssertEqual(r.minY, 600)
+    }
+
+    func testReleaseDistanceIsLargerThanCatchDistance() {
+        var s = SnapSession(engine: SnapEngine(distance: 8, releaseDistance: 24), operation: .move,
+                            others: [a], screens: [screen])
+        let w = CGSize(width: 500, height: 300)
+        XCTAssertEqual(s.update(CGRect(origin: CGPoint(x: 494, y: 400), size: w)).maxX, 1000) // 6pt: catch
+        XCTAssertEqual(s.update(CGRect(origin: CGPoint(x: 480, y: 400), size: w)).maxX, 1000) // 20pt: still held
+        XCTAssertEqual(s.update(CGRect(origin: CGPoint(x: 475, y: 400), size: w)).maxX, 975)  // 25pt: let go
+        // Coming back, it catches again only within the catch distance.
+        XCTAssertEqual(s.update(CGRect(origin: CGPoint(x: 490, y: 400), size: w)).maxX, 990)
+        XCTAssertEqual(s.update(CGRect(origin: CGPoint(x: 493, y: 400), size: w)).maxX, 1000)
+    }
+
+    func testCannotAttachWhileFastButKeepsExistingAttachment() {
+        var s = session(others: [a])
+        let w = CGSize(width: 500, height: 300)
+        let near = CGRect(origin: CGPoint(x: 495, y: 400), size: w)
+        XCTAssertEqual(s.update(near, canAttach: false), near) // moving fast: glides past
+        XCTAssertEqual(s.update(near).maxX, 1000)              // slowed down: catches
+        XCTAssertEqual(s.update(near.offsetBy(dx: -5, dy: 0), canAttach: false).maxX, 1000) // stays held
     }
 
     func testRawFrameFromMouse() {

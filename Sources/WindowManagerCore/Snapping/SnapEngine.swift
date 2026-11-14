@@ -31,11 +31,17 @@ public struct SnapEngine: Equatable, Sendable {
     }
 
     public var distance: CGFloat
+    /// How far an attached edge must be pulled from its target before it lets go. Larger than
+    /// `distance`, so snapping does not flicker on and off at the boundary and pulling a window
+    /// away is a deliberate move. Never less than `distance`.
+    public var releaseDistance: CGFloat
     public var snapToScreen: Bool
     public var snapToWindows: Bool
 
-    public init(distance: CGFloat = 15, snapToScreen: Bool = true, snapToWindows: Bool = true) {
+    public init(distance: CGFloat = 8, releaseDistance: CGFloat? = nil, snapToScreen: Bool = true,
+                snapToWindows: Bool = true) {
         self.distance = distance
+        self.releaseDistance = max(releaseDistance ?? distance, distance)
         self.snapToScreen = snapToScreen
         self.snapToWindows = snapToWindows
     }

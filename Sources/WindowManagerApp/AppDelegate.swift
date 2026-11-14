@@ -23,12 +23,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         // @Published value has been stored).
         Publishers.MergeMany(settings.$snapDistance.map { _ in () }.eraseToAnyPublisher(),
                              settings.$snapToScreenEdges.map { _ in () }.eraseToAnyPublisher(),
-                             settings.$snapToWindows.map { _ in () }.eraseToAnyPublisher())
+                             settings.$snapToWindows.map { _ in () }.eraseToAnyPublisher(),
+                             settings.$releaseDistance.map { _ in () }.eraseToAnyPublisher())
             .receive(on: RunLoop.main)
             .sink { [weak self] in
                 guard let self else { return }
                 self.snapper.engine = self.settings.snapEngine
             }
+            .store(in: &cancellables)
+        settings.$snapOnlyWhenSlow
+            .sink { [weak self] on in self?.snapper.catchOnlyWhenSlow = on }
             .store(in: &cancellables)
         settings.$snappingEnabled
             .sink { [weak self] on in self?.snapper.isEnabled = on }

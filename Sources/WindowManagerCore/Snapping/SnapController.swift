@@ -19,6 +19,10 @@ public final class SnapController {
     public var isEnabled: Bool {
         didSet { isEnabled ? start() : stop() }
     }
+    /// When true, a window moving faster than `catchSpeed` glides past edges instead of catching.
+    public var catchOnlyWhenSlow = true
+    /// Points per second, measured over the last few mouse events.
+    public var catchSpeed: CGFloat = 900
     /// False until the event tap exists (it needs the Accessibility permission).
     public private(set) var isRunning = false
 
@@ -37,6 +41,19 @@ public final class SnapController {
         var session: SnapSession?
         /// The frame this controller last gave the window.
         var placed: CGRect?
+        /// Recent mouse samples (seconds, location) for measuring speed.
+        var samples: [(TimeInterval, CGPoint)] = []
+
+        /// Mouse speed over roughly the last 50 ms, in points per second.
+        var speed: CGFloat {
+            guard let last = samples.last, let first = samples.first, last.0 > first.0 else { return 0 }
+            return hypot(last.1.x - first.1.x, last.1.y - first.1.y) / CGFloat(last.0 - first.0)
+        }
+
+        mutating func record(_ p: CGPoint, at t: TimeInterval) {
+            samples.append((t, p))
+            samples.removeAll { t - $0.0 > 0.05 }
+        }
     }
 
     public init(engine: SnapEngine = SnapEngine(), isEnabled: Bool = true, service: WindowService = WindowService()) {
@@ -87,9 +104,9 @@ public final class SnapController {
             mouseDown(at: event.location)
             return true
         case .leftMouseDragged:
-            return mouseDragged(to: event.location)
+            return mouseDragged(to: event.location, at: TimeInterval(event.timestamp) / 1e9)
         case .leftMouseUp:
-            drag = nil
+            mouseUp(at: event.location)
             return true
         default:
             return true
@@ -102,9 +119,10 @@ public final class SnapController {
         drag = DragState(windowID: hit.windowID, pid: hit.pid, startFrame: hit.frame, startMouse: point)
     }
 
-    private func mouseDragged(to mouse: CGPoint) -> Bool {
+    private func mouseDragged(to mouse: CGPoint, at time: TimeInterval) -> Bool {
         guard var d = drag else { return true }
         defer { drag = d }
+        d.record(mouse, at: time)
 
         if d.session == nil {
             // Wait for the window to start changing to know whether this is a move or a resize.
@@ -120,7 +138,7 @@ public final class SnapController {
 
         let raw = Self.rawFrame(start: d.startFrame, operation: session.operation,
                                 dx: mouse.x - d.startMouse.x, dy: mouse.y - d.startMouse.y)
-        let target = session.update(raw)
+        let target = session.update(raw, canAttach: !catchOnlyWhenSlow || d.speed < catchSpeed)
         d.session = session
 
         if session.isAttached {
@@ -134,6 +152,18 @@ public final class SnapController {
             d.placed = nil
         }
         return true
+    }
+
+    /// A fast drag that stops right next to an edge never got a slow event to catch on, so give it
+    /// one last chance at release.
+    private func mouseUp(at mouse: CGPoint) {
+        defer { drag = nil }
+        guard var d = drag, var session = d.session, let window = d.window, !session.isAttached else { return }
+        let raw = Self.rawFrame(start: d.startFrame, operation: session.operation,
+                                dx: mouse.x - d.startMouse.x, dy: mouse.y - d.startMouse.y)
+        let target = session.update(raw)
+        if target != raw { place(window, at: target, operation: session.operation) }
+        d.session = session
     }
 
     /// Where the window would be without snapping: the start frame plus the mouse travel, applied
