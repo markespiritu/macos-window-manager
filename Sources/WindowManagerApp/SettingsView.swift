@@ -71,14 +71,14 @@ private struct SnappingSettings: View {
                 Toggle("Snap windows while moving and resizing", isOn: $settings.snappingEnabled)
             }
             Section {
+                Toggle("Snap to screen edges", isOn: $settings.snapToScreenEdges)
+                Toggle("Snap to other windows", isOn: $settings.snapToWindows)
                 LabeledContent("Snap distance") {
                     PointsField(value: $settings.snapDistance)
                 }
                 LabeledContent("Pull-off distance") {
                     PointsField(value: $settings.releaseDistance)
                 }
-                Toggle("Snap to screen edges", isOn: $settings.snapToScreenEdges)
-                Toggle("Snap to other windows", isOn: $settings.snapToWindows)
             } footer: {
                 Text("Screen edges and other windows use the same snap distance. A snapped edge lets go once pulled past the pull-off distance (never less than the snap distance). Windows that sit flush side by side also line up their tops and bottoms, including when you resize one of them.")
                     .font(.caption)
