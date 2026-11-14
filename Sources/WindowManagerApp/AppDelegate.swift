@@ -70,17 +70,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
 
     // MARK: Hotkeys
 
-    /// ⌃⌥⌘1–9 picks a layout for the current display, ⌃⌥⌘← / → moves the focused window between
-    /// zones. Only registered while zones are on.
+    /// ⌃⌥⌘← / → moves the focused window between zones. Only registered while zones are on.
+    /// (No layout-switching hotkeys: Marky keeps ⌃⌥⌘1–9 for something else.)
     private func updateHotkeys(zones on: Bool) {
         guard on else { hotkeys.setBindings([]); return }
         let mods = UInt32(controlKey | optionKey | cmdKey)
-        let digits = [kVK_ANSI_1, kVK_ANSI_2, kVK_ANSI_3, kVK_ANSI_4, kVK_ANSI_5, kVK_ANSI_6, kVK_ANSI_7, kVK_ANSI_8, kVK_ANSI_9]
-        var bindings = digits.enumerated().map { i, key in
-            HotkeyCenter.Binding(id: "zones.layout.\(i + 1)", combo: KeyCombo(keyCode: UInt32(key), modifiers: mods)) { [weak self] in
-                self?.zones.applyLayout(at: i)
-            }
-        }
+        var bindings: [HotkeyCenter.Binding] = []
         bindings.append(HotkeyCenter.Binding(id: "zones.next", combo: KeyCombo(keyCode: UInt32(kVK_RightArrow), modifiers: mods)) { [weak self] in
             self?.zones.moveFocusedWindow(by: 1)
         })

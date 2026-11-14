@@ -41,7 +41,6 @@ over one to drop the window into it (Settings › Zones can show them on every d
 the border between zones to span both; hold Control as well (Shift when Control is the zone key) to span every zone between where
 Control went down and the cursor. A window dragged out of a zone gets its previous size back.
 
-- ⌃⌥⌘1–9 picks layout 1–9 for the display of the focused window.
 - ⌃⌥⌘← / → moves the focused window to the previous / next zone (on to the next display).
 
 Layouts are trees of splits (`ZoneNode`), so templates (Columns, Rows, Grid, Priority Grid) and

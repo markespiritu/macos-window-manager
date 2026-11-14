@@ -56,7 +56,7 @@ struct ZonesSettings: View {
                 Toggle("Restore size when dragged out", isOn: $store.restoreSizeOnDragOut)
             }
             .disabled(!store.enabled)
-            Text("Hold \(store.modifier.spanModifier.label) too to span several zones. ⌃⌥⌘1–9 switches the layout of the current display; ⌃⌥⌘← / → moves the focused window between zones.")
+            Text("Hold \(store.modifier.spanModifier.label) too to span several zones. ⌃⌥⌘← / → moves the focused window between zones.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -135,7 +135,7 @@ private struct LayoutThumbnail: View {
             }
             .frame(width: 50 * aspect, height: 50)
             .background(RoundedRectangle(cornerRadius: 4).fill(Color.secondary.opacity(0.15)))
-            Text(index < 9 ? "\(index + 1). \(layout.name)" : layout.name)
+            Text(layout.name)
                 .font(.caption)
                 .lineLimit(1)
                 .frame(maxWidth: 50 * aspect + 10)
