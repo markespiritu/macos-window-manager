@@ -146,6 +146,14 @@ B="build/Window Manager.app/Contents/MacOS/WindowManagerApp"
 "$B" --snap 1234 [distance]           # snap a window by number as if it had just been moved
 ```
 
+To see how a drag performs (event tap time, placements per second, how often a window was slow to
+get where it was put), turn on the drag trace and relaunch the app:
+
+```bash
+defaults write io.marky.windowmanager traceDrag -bool YES
+log stream --predicate 'subsystem == "io.marky.windowmanager"' --level info
+```
+
 ### Source layout
 
 ```
