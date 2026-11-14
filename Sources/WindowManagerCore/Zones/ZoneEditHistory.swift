@@ -1,7 +1,7 @@
 import Foundation
 
 /// Undo and redo for Settings › Zones: edits inside a layout, and changes to the list of layouts
-/// (new, duplicate, delete, reset). One history, like a document's.
+/// (new, duplicate, delete, reorder, reset). One history, like a document's.
 ///
 /// Every layout edit goes through `commit` / `edit`, which records the layout as it was before.
 /// Edits that share a coalescing key become one undo step: a whole drag (one key per gesture),
@@ -82,6 +82,23 @@ public final class ZoneEditHistory {
     public func deleteLayout(_ id: UUID) {
         guard store.layouts.count > 1, store.layout(id: id) != nil else { return }
         changeList("Delete Layout") { store.delete(id) }
+    }
+
+    /// Puts the layouts in `order` (their ids, each exactly once) as one undo step. A display
+    /// that has no layout of its own uses the first one, so each of `displayKeys` (ZoneStore
+    /// assignment keys) without one is first given the layout it uses now: moving layouts
+    /// around never changes the zones on a display.
+    public func reorderLayouts(_ order: [UUID], keeping displayKeys: [String] = []) {
+        guard order.count == store.layouts.count, Set(order) == Set(store.layouts.map(\.id)),
+              order != store.layouts.map(\.id) else { return }
+        changeList("Move Layout") {
+            if let first = store.layouts.first?.id {
+                for key in displayKeys where store.assignments[key].flatMap(store.layout(id:)) == nil {
+                    store.assignments[key] = first
+                }
+            }
+            store.reorder(order)
+        }
     }
 
     /// Replaces every layout with the defaults.

@@ -139,6 +139,13 @@ public final class ZoneStore: ObservableObject {
         return layout
     }
 
+    /// Puts the layouts in `order` (their ids, each exactly once), the order Settings and the
+    /// menu bar list them in. Anything else is ignored.
+    public func reorder(_ order: [UUID]) {
+        guard order.count == layouts.count, Set(order) == Set(layouts.map(\.id)), order != layouts.map(\.id) else { return }
+        layouts = order.compactMap(layout(id:))
+    }
+
     /// Replaces every layout with the defaults and clears the per-display choices.
     public func resetLayouts() {
         layouts = Self.defaultLayouts
