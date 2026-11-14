@@ -23,6 +23,10 @@ public enum ZonePicker {
                 switch rule {
                 case .smallest: return area(rects[a]) > area(rects[b]) || (area(rects[a]) == area(rects[b]) && layers[a] < layers[b])
                 case .topmost: return layers[a] < layers[b] || (layers[a] == layers[b] && area(rects[a]) > area(rects[b]))
+                case .closestCenter:
+                    let da = hypot(rects[a].midX - point.x, rects[a].midY - point.y)
+                    let db = hypot(rects[b].midX - point.x, rects[b].midY - point.y)
+                    return da > db || (da == db && layers[a] < layers[b])
                 }
             }
         if let w = winner {
