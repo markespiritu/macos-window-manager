@@ -173,6 +173,7 @@ private struct LayoutEditor: View {
     let screen: CGSize
     let canDelete: Bool
     let onDelete: () -> Void
+    @State private var hideFree = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -188,6 +189,10 @@ private struct LayoutEditor: View {
                     Label("Add Zone", systemImage: "plus.rectangle.on.rectangle")
                 }
                 .help("Adds a free zone on top of the others. Drag it to move it, drag its edges to resize it.")
+                Toggle("Hide free zones", isOn: $hideFree)
+                    .toggleStyle(.button)
+                    .disabled(layout.floating.isEmpty)
+                    .help("Fades the free zones and lets clicks through, to edit the zones underneath.")
                 Spacer()
                 Text("Spacing")
                 Slider(value: Binding(get: { layout.spacing }, set: { layout.spacing = $0.rounded() }), in: 0...30).frame(width: 120)
@@ -196,8 +201,8 @@ private struct LayoutEditor: View {
                     .disabled(!canDelete)
                     .help("Delete this layout")
             }
-            ZoneCanvas(layout: $layout, screen: screen)
-            Text("Right-click a zone to split or remove it, and drag the lines between zones to resize them. Add Zone puts a free zone on top: drag it to move it, drag its edges or corners to resize it (they stick to other zones and to ½ ⅓ ¼ of the screen), and right-click it to change its layer. Sizes are in points on this display, and as a share of the screen.")
+            ZoneCanvas(layout: $layout, screen: screen, hideFree: hideFree)
+            Text("Right-click a zone to split or remove it, and drag the lines between zones to resize them. Add Zone puts a free zone on top: drag it to move it, drag its edges or corners to resize it (they stick to other zones and to ½ ⅓ ¼ of the screen), and right-click it to change its layer. The lines between split zones stay draggable on top; "Hide free zones" fades the free zones so you can right-click the zones under them. Sizes are in points on this display, and as a share of the screen.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -209,6 +214,7 @@ private struct LayoutEditor: View {
 private struct ZoneCanvas: View {
     @Binding var layout: ZoneLayout
     let screen: CGSize
+    let hideFree: Bool
     @State private var hovered: Int?
     /// The free zone being dragged: its rect when the drag started and the edges being moved
     /// (`.all` for a move).
@@ -234,15 +240,20 @@ private struct ZoneCanvas: View {
                     zone(i, rects[i], real: real.indices.contains(i) ? real[i] : .zero,
                          covers: Array(rects.dropFirst(layout.root.zoneCount)))
                 }
-                ForEach(dividers) { d in
-                    divider(d, spacing: spacing)
-                }
-                // Free zones above the split zones, bottom layer first.
+                // Free zones above the split zones, bottom layer first. While "Hide free zones" is
+                // on they are faint and ignore the mouse, so the split zones underneath can be edited.
                 let base = layout.root.zoneCount
                 ForEach(Array(layout.floating.enumerated()), id: \.element.id) { k, f in
                     let i = base + k
                     floating(k, f, index: i, rect: rects.indices.contains(i) ? rects[i] : .zero,
                              real: real.indices.contains(i) ? real[i] : .zero, canvas: rect, all: rects)
+                        .opacity(hideFree ? 0.15 : 1)
+                        .allowsHitTesting(!hideFree)
+                }
+                // Dividers on top of everything: they are thin, and this keeps the split zones
+                // resizable even where free zones cover them.
+                ForEach(dividers) { d in
+                    divider(d, spacing: spacing)
                 }
             }
             .frame(width: size.width, height: size.height)
