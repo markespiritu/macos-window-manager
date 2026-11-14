@@ -53,6 +53,11 @@ struct ZonesSettings: View {
             }
             .disabled(!store.enabled)
             HStack(spacing: 16) {
+                Picker("Where zones overlap", selection: $store.overlapRule) {
+                    Text("Use the smallest zone").tag(ZoneOverlapRule.smallest)
+                    Text("Use the top-most zone").tag(ZoneOverlapRule.topmost)
+                }
+                .fixedSize()
                 Toggle("Span zones at borders", isOn: $store.spanAdjacentZones)
                 Toggle("Restore size when dragged out", isOn: $store.restoreSizeOnDragOut)
             }
@@ -139,9 +144,14 @@ private struct LayoutThumbnail: View {
     var body: some View {
         VStack(spacing: 4) {
             Canvas { ctx, size in
-                let rects = layout.root.zoneRects(in: CGRect(origin: .zero, size: size), spacing: 3)
-                for r in rects {
+                let area = CGRect(origin: .zero, size: size)
+                for r in layout.root.zoneRects(in: area, spacing: 3) {
                     ctx.fill(Path(roundedRect: r, cornerRadius: 2), with: .color(.accentColor.opacity(selected ? 0.55 : 0.3)))
+                }
+                for f in layout.floating {
+                    let r = f.frame(in: area)
+                    ctx.fill(Path(roundedRect: r, cornerRadius: 2), with: .color(.orange.opacity(0.6)))
+                    ctx.stroke(Path(roundedRect: r, cornerRadius: 2), with: .color(.orange), lineWidth: 1)
                 }
             }
             .frame(width: 50 * aspect, height: 50)
@@ -170,6 +180,12 @@ private struct LayoutEditor: View {
                 TextField("Name", text: $layout.name)
                     .textFieldStyle(.roundedBorder)
                     .frame(maxWidth: 200)
+                Button {
+                    layout.floating.append(FloatingZone(rect: CGRect(x: 0.3, y: 0.3, width: 0.4, height: 0.4)))
+                } label: {
+                    Label("Add Zone", systemImage: "plus.rectangle.on.rectangle")
+                }
+                .help("Adds a free zone on top of the others. Drag it to move it, drag its edges to resize it.")
                 Spacer()
                 Text("Spacing")
                 Slider(value: Binding(get: { layout.spacing }, set: { layout.spacing = $0.rounded() }), in: 0...30).frame(width: 120)
@@ -179,7 +195,7 @@ private struct LayoutEditor: View {
                     .help("Delete this layout")
             }
             ZoneCanvas(layout: $layout, screen: screen)
-            Text("Right-click a zone to split or remove it. Drag the lines between zones to resize them. Sizes are in points on this display, and as a share of the screen.")
+            Text("Right-click a zone to split or remove it, and drag the lines between zones to resize them. Add Zone puts a free zone on top: drag it to move it, drag its edges or corners to resize it (they stick to other zones and to ½ ⅓ ¼ of the screen), and right-click it to change its layer. Sizes are in points on this display, and as a share of the screen.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -192,6 +208,9 @@ private struct ZoneCanvas: View {
     @Binding var layout: ZoneLayout
     let screen: CGSize
     @State private var hovered: Int?
+    /// The free zone being dragged: its rect when the drag started and the edges being moved
+    /// (`.all` for a move).
+    @State private var floatDrag: (id: UUID, start: CGRect, edges: Edges)?
 
     var body: some View {
         GeometryReader { geo in
@@ -213,6 +232,13 @@ private struct ZoneCanvas: View {
                 }
                 ForEach(dividers) { d in
                     divider(d, spacing: spacing)
+                }
+                // Free zones above the split zones, bottom layer first.
+                let base = layout.root.zoneCount
+                ForEach(Array(layout.floating.enumerated()), id: \.element.id) { k, f in
+                    let i = base + k
+                    floating(k, f, index: i, rect: rects.indices.contains(i) ? rects[i] : .zero,
+                             real: real.indices.contains(i) ? real[i] : .zero, canvas: rect, all: rects)
                 }
             }
             .frame(width: size.width, height: size.height)
@@ -250,6 +276,100 @@ private struct ZoneCanvas: View {
                 Button("Remove Zone") { layout.root.remove(zone: i) }
                     .disabled(layout.root.zoneCount < 2)
             }
+    }
+
+    private func label(_ i: Int, _ r: CGRect, real: CGRect) -> some View {
+        let pw = Int((real.width / max(screen.width, 1) * 100).rounded())
+        let ph = Int((real.height / max(screen.height, 1) * 100).rounded())
+        return VStack(spacing: 2) {
+            Text("\(i + 1)").font(.system(size: min(max(min(r.width, r.height) / 5, 11), 24), weight: .semibold))
+            if r.width > 70 && r.height > 50 {
+                Text(verbatim: "\(Int(real.width)) × \(Int(real.height))").font(.system(size: 11, weight: .medium)).monospacedDigit()
+                Text(verbatim: "\(pw)% × \(ph)%").font(.system(size: 10)).monospacedDigit().opacity(0.8)
+            }
+        }
+        .foregroundStyle(.white)
+    }
+
+    /// A free zone: drag inside to move it, near an edge or corner to resize it.
+    private func floating(_ k: Int, _ f: FloatingZone, index i: Int, rect r: CGRect, real: CGRect,
+                          canvas: CGRect, all: [CGRect]) -> some View {
+        let active = floatDrag?.id == f.id || hovered == i
+        return RoundedRectangle(cornerRadius: 5)
+            .fill(Color.orange.opacity(active ? 0.55 : 0.4))
+            .overlay(RoundedRectangle(cornerRadius: 5).stroke(Color.orange, lineWidth: active ? 2.5 : 1.5))
+            .overlay(label(i, r, real: real))
+            .overlay(alignment: .bottomTrailing) {
+                Image(systemName: "arrow.up.left.and.arrow.down.right").font(.system(size: 9)).foregroundStyle(.white.opacity(0.7)).padding(4)
+            }
+            .frame(width: max(r.width, 1), height: max(r.height, 1))
+            .offset(x: r.minX, y: r.minY)
+            .onHover { hovered = $0 ? i : (hovered == i ? nil : hovered) }
+            .onContinuousHover(coordinateSpace: .named("canvas")) { phase in
+                guard floatDrag == nil else { return }
+                if case .active(let p) = phase { Self.cursor(for: Self.edges(at: p, of: r)).set() } else { NSCursor.arrow.set() }
+            }
+            .gesture(DragGesture(minimumDistance: 1, coordinateSpace: .named("canvas"))
+                .onChanged { v in
+                    if floatDrag?.id != f.id {
+                        let e = Self.edges(at: v.startLocation, of: r)
+                        floatDrag = (f.id, r, e.isEmpty ? .all : e)
+                    }
+                    guard let drag = floatDrag else { return }
+                    let moved = Self.drag(drag.start, edges: drag.edges, by: v.translation, in: canvas)
+                    let others = all.filter { $0 != r }
+                    let xs = [0, 0.25, 1.0 / 3, 0.5, 2.0 / 3, 0.75, 1].map { canvas.minX + canvas.width * $0 } + others.flatMap { [$0.minX, $0.maxX] }
+                    let ys = [0, 0.25, 1.0 / 3, 0.5, 2.0 / 3, 0.75, 1].map { canvas.minY + canvas.height * $0 } + others.flatMap { [$0.minY, $0.maxY] }
+                    let snapped = GuideSnap.snap(moved, edges: drag.edges, xs: xs, ys: ys, threshold: 6)
+                    guard layout.floating.indices.contains(k) else { return }
+                    layout.floating[k].rect = FloatingZone.fraction(of: snapped, in: canvas)
+                }
+                .onEnded { _ in floatDrag = nil })
+            .contextMenu {
+                Button("Bring to Front") { let z = layout.floating.remove(at: k); layout.floating.append(z) }
+                    .disabled(k == layout.floating.count - 1)
+                Button("Bring Forward") { layout.floating.swapAt(k, k + 1) }
+                    .disabled(k == layout.floating.count - 1)
+                Button("Send Backward") { layout.floating.swapAt(k, k - 1) }
+                    .disabled(k == 0)
+                Button("Send to Back") { let z = layout.floating.remove(at: k); layout.floating.insert(z, at: 0) }
+                    .disabled(k == 0)
+                Divider()
+                Button("Remove Zone") { layout.floating.remove(at: k) }
+            }
+    }
+
+    /// Edges of `r` within grabbing distance of `p`; empty in the middle (a move).
+    private static func edges(at p: CGPoint, of r: CGRect) -> Edges {
+        let grab = min(10, r.width / 4, r.height / 4)
+        var e: Edges = []
+        if abs(p.x - r.minX) <= grab { e.insert(.left) } else if abs(p.x - r.maxX) <= grab { e.insert(.right) }
+        if abs(p.y - r.minY) <= grab { e.insert(.top) } else if abs(p.y - r.maxY) <= grab { e.insert(.bottom) }
+        return e
+    }
+
+    private static func cursor(for e: Edges) -> NSCursor {
+        if e.isEmpty { return .openHand }
+        if e == [.left] || e == [.right] { return .resizeLeftRight }
+        if e == [.top] || e == [.bottom] { return .resizeUpDown }
+        return .crosshair // corners
+    }
+
+    /// The rect after dragging `edges` (or all of it) by `t`, kept inside the canvas and at least
+    /// 20 pt each way.
+    private static func drag(_ s: CGRect, edges: Edges, by t: CGSize, in c: CGRect) -> CGRect {
+        if edges == .all {
+            let x = min(max(s.minX + t.width, c.minX), c.maxX - s.width)
+            let y = min(max(s.minY + t.height, c.minY), c.maxY - s.height)
+            return CGRect(x: x, y: y, width: s.width, height: s.height)
+        }
+        let minSize: CGFloat = 20
+        var minX = s.minX, maxX = s.maxX, minY = s.minY, maxY = s.maxY
+        if edges.contains(.left) { minX = min(max(s.minX + t.width, c.minX), maxX - minSize) }
+        if edges.contains(.right) { maxX = max(min(s.maxX + t.width, c.maxX), minX + minSize) }
+        if edges.contains(.top) { minY = min(max(s.minY + t.height, c.minY), maxY - minSize) }
+        if edges.contains(.bottom) { maxY = max(min(s.maxY + t.height, c.maxY), minY + minSize) }
+        return CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
     }
 
     private func divider(_ d: ZoneNode.Divider, spacing: CGFloat) -> some View {

@@ -74,6 +74,8 @@ final class ZoneOverlayView: NSView {
             let local = r.offsetBy(dx: -origin.x, dy: -origin.y).insetBy(dx: 1, dy: 1)
             let path = NSBezierPath(roundedRect: local, xRadius: 10, yRadius: 10)
             let on = selected.contains(i)
+            // Zones further down the list sit on top (free zones), so give them a solid backing to
+            // read as a separate layer over the zone below.
             (on ? accent.withAlphaComponent(0.45) : NSColor.black.withAlphaComponent(0.18)).setFill()
             path.fill()
             (on ? accent : NSColor.white.withAlphaComponent(0.55)).setStroke()

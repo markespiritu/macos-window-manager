@@ -89,3 +89,47 @@ final class ZonePickerTests: XCTestCase {
         XCTAssertNil(ZonePicker.zone(containing: CGRect(x: 0, y: 0, width: 1000, height: 800), in: rects))
     }
 }
+
+final class OverlappingZoneTests: XCTestCase {
+    // Two columns, with three small free zones across the top of the left one.
+    let screen = CGRect(x: 0, y: 0, width: 1200, height: 800)
+    var layout: ZoneLayout {
+        var l = ZoneTemplate.columns.layout(zones: 2, spacing: 0)
+        l.floating = (0..<3).map { i in FloatingZone(rect: CGRect(x: Double(i) * 0.5 / 3, y: 0, width: 0.5 / 3, height: 0.5)) }
+        return l
+    }
+
+    func testRectsAndLayers() {
+        XCTAssertEqual(layout.zoneRects(in: screen).count, 5)
+        XCTAssertEqual(layout.zoneLayers, [0, 0, 1, 2, 3])
+        XCTAssertEqual(layout.zoneRects(in: screen)[3], CGRect(x: 200, y: 0, width: 200, height: 400))
+    }
+
+    func testSmallestWinsOverColumn() {
+        let rects = layout.zoneRects(in: screen), layers = layout.zoneLayers
+        XCTAssertEqual(ZonePicker.zones(at: CGPoint(x: 300, y: 200), in: rects, layers: layers), [3])
+        // Below the free zones, the column.
+        XCTAssertEqual(ZonePicker.zones(at: CGPoint(x: 300, y: 600), in: rects, layers: layers), [0])
+    }
+
+    func testTopmostRule() {
+        var l = layout
+        l.floating.append(FloatingZone(rect: CGRect(x: 0, y: 0, width: 0.5, height: 0.75))) // big, on top
+        let rects = l.zoneRects(in: screen), layers = l.zoneLayers
+        XCTAssertEqual(ZonePicker.zones(at: CGPoint(x: 300, y: 200), in: rects, layers: layers, rule: .topmost), [5])
+        XCTAssertEqual(ZonePicker.zones(at: CGPoint(x: 300, y: 200), in: rects, layers: layers, rule: .smallest), [3])
+    }
+
+    func testFreeZonesSpanEachOtherNotTheColumn() {
+        let rects = layout.zoneRects(in: screen), layers = layout.zoneLayers
+        // On the border between free zones 2 and 3 (indices 2 and 3).
+        XCTAssertEqual(Set(ZonePicker.zones(at: CGPoint(x: 201, y: 200), in: rects, layers: layers)), [2, 3])
+        XCTAssertEqual(ZonePicker.span([2, 4], in: rects, layers: layers), [2, 3, 4])
+    }
+
+    func testOldLayoutsDecodeWithoutFreeZones() throws {
+        let json = #"{"id":"6F9619FF-8B86-D011-B42D-00C04FC964FF","name":"x","root":{"children":[],"fractions":[]},"spacing":8}"#
+        let l = try JSONDecoder().decode(ZoneLayout.self, from: Data(json.utf8))
+        XCTAssertEqual(l.floating, [])
+    }
+}

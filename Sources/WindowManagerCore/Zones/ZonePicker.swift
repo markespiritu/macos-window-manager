@@ -5,11 +5,31 @@ public enum ZonePicker {
     /// Zones selected by the cursor at `point`. The zone under it, plus (when `spanAdjacent`) any
     /// zone within `radius`, so hovering over the border between two zones selects both. In a gap
     /// or just outside the zones, the nearest zone within `radius` is selected.
-    public static func zones(at point: CGPoint, in rects: [CGRect], radius: CGFloat = 16, spanAdjacent: Bool = true) -> [Int] {
+    ///
+    /// Where zones on different layers overlap, `rule` picks one zone (the smallest, or the one on
+    /// the top layer). Only zones of the same kind can join it: split zones span with split zones,
+    /// free zones with free zones, so a small free zone never merges with the column under it.
+    public static func zones(at point: CGPoint, in rects: [CGRect], layers: [Int]? = nil, rule: ZoneOverlapRule = .smallest,
+                             radius: CGFloat = 16, spanAdjacent: Bool = true) -> [Int] {
+        let layers = layers ?? Array(repeating: 0, count: rects.count)
         let distances = rects.map { distance(from: point, to: $0) }
-        let near = distances.indices.filter { distances[$0] <= radius }
+        var near = distances.indices.filter { distances[$0] <= radius }
         if near.isEmpty { return [] }
-        let inside = near.filter { distances[$0] == 0 }
+        var inside = near.filter { distances[$0] == 0 }
+        // The winning zone decides the layer everything else must be on.
+        let winner: Int? = inside.isEmpty
+            ? near.min { distances[$0] < distances[$1] }
+            : inside.max { a, b in
+                switch rule {
+                case .smallest: return area(rects[a]) > area(rects[b]) || (area(rects[a]) == area(rects[b]) && layers[a] < layers[b])
+                case .topmost: return layers[a] < layers[b] || (layers[a] == layers[b] && area(rects[a]) > area(rects[b]))
+                }
+            }
+        if let w = winner {
+            near = near.filter { group(layers[$0]) == group(layers[w]) }
+            inside = inside.filter { group(layers[$0]) == group(layers[w]) }
+            if !inside.isEmpty { inside = [w] }
+        }
         if spanAdjacent {
             // Only span when the cursor is really on a border: within radius/2 of the zone it is in.
             guard let home = inside.first else { return near }
@@ -22,10 +42,12 @@ public enum ZonePicker {
 
     /// Every zone that overlaps the bounding box of the given zones, so selecting two opposite
     /// corners of a grid fills in everything between them.
-    public static func span(_ indices: [Int], in rects: [CGRect]) -> [Int] {
+    /// With `layers`, only zones of the same kind (split or free) as the first given zone count.
+    public static func span(_ indices: [Int], in rects: [CGRect], layers: [Int]? = nil) -> [Int] {
         guard let box = bounds(indices, in: rects) else { return [] }
         let inner = box.insetBy(dx: 1, dy: 1)
-        return rects.indices.filter { rects[$0].intersects(inner) }
+        let kind = layers.flatMap { l in indices.first.map { group(l[$0]) } }
+        return rects.indices.filter { rects[$0].intersects(inner) && (kind == nil || group(layers![$0]) == kind) }
     }
 
     /// The frame a window gets when dropped on these zones.
@@ -45,6 +67,11 @@ public enum ZonePicker {
         guard let best = scores.indices.max(by: { scores[$0] < scores[$1] }), scores[best] > 0.5 else { return nil }
         return best
     }
+
+    /// 0 for split zones, 1 for free zones (whatever their layer).
+    static func group(_ layer: Int) -> Int { layer > 0 ? 1 : 0 }
+
+    static func area(_ r: CGRect) -> CGFloat { r.width * r.height }
 
     static func distance(from p: CGPoint, to r: CGRect) -> CGFloat {
         let dx = max(r.minX - p.x, 0, p.x - r.maxX)

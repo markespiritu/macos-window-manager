@@ -204,24 +204,77 @@ public struct ZoneNode: Codable, Hashable, Sendable {
     }
 }
 
-/// A named zone layout.
+/// A free-form zone that sits on top of the split zones (and of earlier free zones).
+public struct FloatingZone: Codable, Hashable, Identifiable, Sendable {
+    public var id: UUID
+    /// Position and size as fractions (0...1) of the display's usable area.
+    public var rect: CGRect
+
+    public init(id: UUID = UUID(), rect: CGRect) {
+        self.id = id
+        self.rect = rect
+    }
+
+    public func frame(in area: CGRect) -> CGRect {
+        CGRect(x: area.minX + rect.minX * area.width, y: area.minY + rect.minY * area.height,
+               width: rect.width * area.width, height: rect.height * area.height).integralized
+    }
+
+    /// The fractional rect for a frame inside `area`.
+    public static func fraction(of frame: CGRect, in area: CGRect) -> CGRect {
+        CGRect(x: (frame.minX - area.minX) / max(area.width, 1), y: (frame.minY - area.minY) / max(area.height, 1),
+               width: frame.width / max(area.width, 1), height: frame.height / max(area.height, 1))
+    }
+}
+
+/// A named zone layout: the split zones (layer 0) plus free zones stacked above them, each on its
+/// own layer in order (the last one is on top).
+///
+/// Zones are numbered split zones first, then free zones bottom to top.
 public struct ZoneLayout: Codable, Hashable, Identifiable, Sendable {
     public var id: UUID
     public var name: String
     public var root: ZoneNode
-    /// Gap between zones and around the edge of the screen, in points.
+    /// Gap between split zones and around the edge of the screen, in points.
     public var spacing: Double
+    public var floating: [FloatingZone]
 
-    public init(id: UUID = UUID(), name: String, root: ZoneNode, spacing: Double = 8) {
+    public init(id: UUID = UUID(), name: String, root: ZoneNode, spacing: Double = 8, floating: [FloatingZone] = []) {
         self.id = id
         self.name = name
         self.root = root
         self.spacing = spacing
+        self.floating = floating
     }
 
-    public func zoneRects(in frame: CGRect) -> [CGRect] {
-        root.zoneRects(in: frame, spacing: CGFloat(spacing))
+    private enum CodingKeys: String, CodingKey { case id, name, root, spacing, floating }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        name = try c.decode(String.self, forKey: .name)
+        root = try c.decode(ZoneNode.self, forKey: .root)
+        spacing = try c.decode(Double.self, forKey: .spacing)
+        floating = try c.decodeIfPresent([FloatingZone].self, forKey: .floating) ?? []
     }
+
+    public var zoneCount: Int { root.zoneCount + floating.count }
+
+    /// Every zone's rect, split zones first, then free zones bottom to top.
+    public func zoneRects(in frame: CGRect) -> [CGRect] {
+        root.zoneRects(in: frame, spacing: CGFloat(spacing)) + floating.map { $0.frame(in: frame) }
+    }
+
+    /// The layer of each zone, parallel to `zoneRects`: 0 for split zones, 1... for free zones.
+    public var zoneLayers: [Int] {
+        Array(repeating: 0, count: root.zoneCount) + floating.indices.map { $0 + 1 }
+    }
+}
+
+/// Which zone a drag picks where zones overlap.
+public enum ZoneOverlapRule: String, Codable, CaseIterable, Sendable {
+    case smallest
+    case topmost
 }
 
 /// Starting points for new layouts.
@@ -279,5 +332,29 @@ public enum ZoneTemplate: String, CaseIterable, Identifiable, Sendable {
         let n = zones ?? defaultZoneCount
         let suffix = self == .grid || self == .priorityGrid ? " (\(n))" : " \(n)"
         return ZoneLayout(name: name + suffix, root: root(zones: n), spacing: spacing)
+    }
+}
+
+/// Snapping for free zones in the editor: moving edges stick to nearby guide lines (other zones'
+/// edges, screen fractions).
+public enum GuideSnap {
+    /// - Parameters:
+    ///   - edges: the edges being dragged; `.all` for a move (the rect shifts, keeping its size).
+    ///   - xs, ys: vertical and horizontal guide lines.
+    public static func snap(_ r: CGRect, edges: Edges, xs: [CGFloat], ys: [CGFloat], threshold: CGFloat) -> CGRect {
+        func nearest(_ v: CGFloat, _ lines: [CGFloat]) -> CGFloat? {
+            lines.map { $0 - v }.filter { abs($0) <= threshold }.min { abs($0) < abs($1) }
+        }
+        var minX = r.minX, maxX = r.maxX, minY = r.minY, maxY = r.maxY
+        if edges == .all {
+            let dx = [nearest(minX, xs), nearest(maxX, xs)].compactMap { $0 }.min { abs($0) < abs($1) } ?? 0
+            let dy = [nearest(minY, ys), nearest(maxY, ys)].compactMap { $0 }.min { abs($0) < abs($1) } ?? 0
+            return r.offsetBy(dx: dx, dy: dy)
+        }
+        if edges.contains(.left), let d = nearest(minX, xs) { minX += d }
+        if edges.contains(.right), let d = nearest(maxX, xs) { maxX += d }
+        if edges.contains(.top), let d = nearest(minY, ys) { minY += d }
+        if edges.contains(.bottom), let d = nearest(maxY, ys) { maxY += d }
+        return CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
     }
 }

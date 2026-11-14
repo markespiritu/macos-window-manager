@@ -56,6 +56,8 @@ public final class ZoneStore: ObservableObject {
     @Published public var spanAdjacentZones: Bool { didSet { save() } }
     /// A window dragged out of a zone gets back the size it had before it was put there.
     @Published public var restoreSizeOnDragOut: Bool { didSet { save() } }
+    /// Which zone wins where zones overlap.
+    @Published public var overlapRule: ZoneOverlapRule { didSet { save() } }
 
     private struct Saved: Codable {
         var layouts: [ZoneLayout]
@@ -65,6 +67,7 @@ public final class ZoneStore: ObservableObject {
         var modifier: ZoneModifier?
         var spanAdjacentZones: Bool?
         var restoreSizeOnDragOut: Bool
+        var overlapRule: ZoneOverlapRule?
     }
 
     private static let key = "zones"
@@ -85,11 +88,13 @@ public final class ZoneStore: ObservableObject {
         modifier = saved?.modifier ?? .option
         spanAdjacentZones = saved?.spanAdjacentZones ?? true
         restoreSizeOnDragOut = saved?.restoreSizeOnDragOut ?? true
+        overlapRule = saved?.overlapRule ?? .smallest
     }
 
     private func save() {
         let s = Saved(layouts: layouts, assignments: assignments, enabled: enabled, activation: activation, modifier: modifier,
-                      spanAdjacentZones: spanAdjacentZones, restoreSizeOnDragOut: restoreSizeOnDragOut)
+                      spanAdjacentZones: spanAdjacentZones, restoreSizeOnDragOut: restoreSizeOnDragOut,
+                      overlapRule: overlapRule)
         if let data = try? JSONEncoder().encode(s) { defaults.set(data, forKey: Self.key) }
     }
 
@@ -114,6 +119,11 @@ public final class ZoneStore: ObservableObject {
     /// Zone rects (AX space) of a display's layout.
     public func zones(on display: Display) -> [CGRect] {
         layout(for: display)?.zoneRects(in: display.visibleFrame) ?? []
+    }
+
+    /// Layer of each zone of a display's layout, parallel to `zones(on:)`.
+    public func zoneLayers(on display: Display) -> [Int] {
+        layout(for: display)?.zoneLayers ?? []
     }
 
     // MARK: Editing
