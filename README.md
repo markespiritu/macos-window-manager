@@ -189,6 +189,8 @@ How later phases build on this:
 | 5. Save and restore | `Window.windowID` + app bundle id as keys; persisted beside `SettingsStore` |
 | 6. Auto-tiling | `WindowControlling`; window created/destroyed observers |
 
-## Licensing
+## License
 
-No GPL code or dependencies, to keep a commercial release possible. No license file yet.
+Released under the [MIT License](LICENSE). Copyright (c) 2026 Mark Espiritu.
+
+The project has no GPL code or dependencies.
