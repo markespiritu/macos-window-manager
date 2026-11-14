@@ -45,31 +45,22 @@ public struct SnapEngine: Equatable, Sendable {
     ///   - others: frames of the other visible windows.
     ///   - screens: visible frames (and optionally full frames) of the displays.
     public func snap(_ frame: CGRect, operation: Operation, others: [CGRect], screens: [CGRect]) -> CGRect {
-        guard distance > 0 else { return frame }
-        let moving: Edges
-        switch operation {
-        case .move: moving = .all
-        case .resize(let e): moving = e
-        }
-        let others = snapToWindows ? others.filter { !$0.isEmpty } : []
-        let screens = snapToScreen ? screens : []
-
-        var r = frame
-        if let dx = bestDelta(axis: .x, frame: frame, moving: moving, others: others, screens: screens) {
-            r = apply(dx, axis: .x, to: r, operation: operation, moving: moving)
-        }
-        if let dy = bestDelta(axis: .y, frame: frame, moving: moving, others: others, screens: screens) {
-            r = apply(dy, axis: .y, to: r, operation: operation, moving: moving)
-        }
-        return r
+        var session = SnapSession(engine: self, operation: operation, others: others, screens: screens)
+        return session.update(frame)
     }
 
     // MARK: - Internals
 
-    enum Axis { case x, y }
+    enum Axis: CaseIterable { case x, y }
+
+    /// An edge of the window held on a target line.
+    struct Attachment: Equatable {
+        let low: Bool
+        let target: CGFloat
+    }
 
     /// The edge of `r` at `low` (left/top) or high (right/bottom) end of `axis`.
-    private func edge(_ r: CGRect, _ axis: Axis, low: Bool) -> CGFloat {
+    func edge(_ r: CGRect, _ axis: Axis, low: Bool) -> CGFloat {
         switch axis {
         case .x: return low ? r.minX : r.maxX
         case .y: return low ? r.minY : r.maxY
@@ -93,11 +84,20 @@ public struct SnapEngine: Equatable, Sendable {
             || abs(edge(a, axis, low: false) - edge(b, axis, low: true)) <= distance
     }
 
-    /// Smallest signed shift, within `distance`, that puts a moving edge on a target on `axis`.
-    private func bestDelta(axis: Axis, frame f: CGRect, moving: Edges, others: [CGRect],
-                           screens: [CGRect]) -> CGFloat? {
-        let lowEdge: Edges = axis == .x ? .left : .top
-        let highEdge: Edges = axis == .x ? .right : .bottom
+    func moving(_ op: Operation) -> Edges {
+        if case .resize(let e) = op { return e }
+        return .all
+    }
+
+    func canMove(_ moving: Edges, _ axis: Axis, low: Bool) -> Bool {
+        moving.contains(axis == .x ? (low ? .left : .right) : (low ? .top : .bottom))
+    }
+
+    /// The nearest target, within `distance`, for a moving edge on `axis`.
+    func bestAttachment(axis: Axis, frame f: CGRect, moving: Edges, others: [CGRect],
+                        screens: [CGRect]) -> Attachment? {
+        let others = snapToWindows ? others.filter { !$0.isEmpty } : []
+        let screens = snapToScreen ? screens : []
         var candidates: [(low: Bool, target: CGFloat)] = []
         let other: Axis = axis == .x ? .y : .x
 
@@ -118,18 +118,15 @@ public struct SnapEngine: Equatable, Sendable {
             }
         }
 
-        var best: CGFloat?
-        for c in candidates {
-            guard moving.contains(c.low ? lowEdge : highEdge) else { continue }
-            let d = c.target - edge(f, axis, low: c.low)
-            if abs(d) <= distance, best == nil || abs(d) < abs(best!) { best = d }
+        var best: (Attachment, CGFloat)?
+        for c in candidates where canMove(moving, axis, low: c.low) {
+            let d = abs(c.target - edge(f, axis, low: c.low))
+            if d <= distance, best == nil || d < best!.1 { best = (Attachment(low: c.low, target: c.target), d) }
         }
-        // A delta of 0 still counts: the edge is already aligned, and that holds the window still
-        // rather than letting a second, farther target pull it.
-        return best
+        return best?.0
     }
 
-    private func apply(_ d: CGFloat, axis: Axis, to r: CGRect, operation: Operation, moving: Edges) -> CGRect {
+    func apply(_ d: CGFloat, axis: Axis, to r: CGRect, operation: Operation, moving: Edges) -> CGRect {
         var r = r
         switch (operation, axis) {
         case (.move, .x): r.origin.x += d

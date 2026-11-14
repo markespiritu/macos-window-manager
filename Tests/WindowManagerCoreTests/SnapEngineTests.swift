@@ -152,3 +152,59 @@ final class SettingsTests: XCTestCase {
         XCTAssertEqual(r.snapEngine, SnapEngine(distance: 25, snapToScreen: true, snapToWindows: false))
     }
 }
+
+final class SnapSessionTests: XCTestCase {
+    let screen = CGRect(x: 0, y: 30, width: 2000, height: 1200)
+    let a = CGRect(x: 1000, y: 200, width: 600, height: 700)   // neighbour on the right
+    let b = CGRect(x: 1000, y: 920, width: 600, height: 200)   // another window just below `a`
+
+    func session(_ op: SnapEngine.Operation = .move, others: [CGRect]) -> SnapSession {
+        SnapSession(engine: SnapEngine(distance: 15), operation: op, others: others, screens: [screen])
+    }
+
+    func testStaysAttachedUntilPulledPastDistance() {
+        var s = session(others: [a])
+        let w = CGSize(width: 500, height: 300)
+        // Approach: right edge 10pt short of `a` attaches.
+        XCTAssertEqual(s.update(CGRect(origin: CGPoint(x: 490, y: 400), size: w)).maxX, 1000)
+        XCTAssertTrue(s.isAttached)
+        // Pull 14pt to the left: still held.
+        XCTAssertEqual(s.update(CGRect(origin: CGPoint(x: 486, y: 400), size: w)).maxX, 1000)
+        // Pull 16pt: detached, follows the mouse.
+        XCTAssertEqual(s.update(CGRect(origin: CGPoint(x: 484, y: 400), size: w)).maxX, 984)
+        XCTAssertFalse(s.isAttached)
+    }
+
+    func testIgnoresOtherTargetsWhileDetaching() {
+        // Attached by its top to `a`'s top (side by side). Pulling down brings its bottom within
+        // range of `b`'s top, but it must stay on `a` until fully detached.
+        var s = session(others: [a, b])
+        let w = CGSize(width: 500, height: 700)
+        XCTAssertEqual(s.update(CGRect(origin: CGPoint(x: 500, y: 205), size: w)).minY, 200)
+        // Raw top at 213: 13pt from `a`'s top. Raw bottom 913 is 7pt from `b`'s top (closer!), ignored.
+        XCTAssertEqual(s.update(CGRect(origin: CGPoint(x: 500, y: 213), size: w)).minY, 200)
+        // Raw top at 216: detached from `a`; now `b` (bottom 916, 4pt away) may attach.
+        XCTAssertEqual(s.update(CGRect(origin: CGPoint(x: 500, y: 216), size: w)).maxY, 920)
+    }
+
+    func testAxesAreIndependent() {
+        var s = session(others: [a])
+        let w = CGSize(width: 500, height: 300)
+        // Attached on x (flush to `a`); moving freely on y keeps the x attachment.
+        XCTAssertEqual(s.update(CGRect(origin: CGPoint(x: 495, y: 400), size: w)).maxX, 1000)
+        let r = s.update(CGRect(origin: CGPoint(x: 497, y: 600), size: w))
+        XCTAssertEqual(r.maxX, 1000)
+        XCTAssertEqual(r.minY, 600)
+    }
+
+    func testRawFrameFromMouse() {
+        let start = CGRect(x: 100, y: 100, width: 400, height: 300)
+        XCTAssertEqual(raw(start, .move, 10, -5), CGRect(x: 110, y: 95, width: 400, height: 300))
+        XCTAssertEqual(raw(start, .resize(.bottom), 10, 20), CGRect(x: 100, y: 100, width: 400, height: 320))
+        XCTAssertEqual(raw(start, .resize([.left, .top]), 10, 20), CGRect(x: 110, y: 120, width: 390, height: 280))
+    }
+}
+
+private func raw(_ s: CGRect, _ op: SnapEngine.Operation, _ dx: CGFloat, _ dy: CGFloat) -> CGRect {
+    SnapController.rawFrame(start: s, operation: op, dx: dx, dy: dy)
+}

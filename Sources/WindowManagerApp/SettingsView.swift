@@ -73,7 +73,7 @@ private struct SnappingSettings: View {
             Section {
                 LabeledContent("Snap distance") {
                     HStack {
-                        Slider(value: $settings.snapDistance, in: 4...50).frame(width: 180)
+                        Slider(value: $settings.snapDistance, in: 4...50, step: 1).frame(width: 180)
                         Text("\(Int(settings.snapDistance)) pt").monospacedDigit().frame(width: 44, alignment: .trailing)
                     }
                 }

@@ -35,7 +35,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
             .store(in: &cancellables)
         permission.$isGranted
             .removeDuplicates()
-            .sink { [weak self] granted in if granted { self?.onboarding?.close() } }
+            .sink { [weak self] granted in
+                guard granted else { return }
+                self?.onboarding?.close()
+                self?.snapper.start() // the event tap can only be created once access is granted
+            }
             .store(in: &cancellables)
 
         if !permission.isGranted { showOnboarding() }

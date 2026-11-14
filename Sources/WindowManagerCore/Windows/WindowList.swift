@@ -18,9 +18,10 @@ public enum WindowList {
         return list.compactMap(entry).filter { $0.pid != excludingPID && $0.frame.width > 40 && $0.frame.height > 40 }
     }
 
-    /// The frontmost normal window under a point (AX space).
-    public static func window(at point: CGPoint) -> Entry? {
-        onScreen().first { $0.frame.contains(point) }
+    /// The frontmost normal window under a point (AX space). `margin` widens each window, because
+    /// the resize handles of macOS windows reach a few points outside the frame.
+    public static func window(at point: CGPoint, margin: CGFloat = 0) -> Entry? {
+        onScreen().first { $0.frame.insetBy(dx: -margin, dy: -margin).contains(point) }
     }
 
     /// Current frame of one window, straight from the window server.
