@@ -32,7 +32,9 @@ final class MenuBarController: NSObject, NSMenuDelegate {
             func snap(_ v: CGFloat) -> CGFloat { (v * scale).rounded() / scale }
             // Outline centred on the pixel grid so the stroke covers whole pixels.
             let inset = line / 2
-            let outer = CGRect(x: snap(1) + inset, y: snap(1.5) + inset,
+            // y 0.5: the menu bar centres the 16 pt image, and at 1.5 the icon sat 1 pt higher
+            // than its neighbours (measured against the other menu bar icons).
+            let outer = CGRect(x: snap(1) + inset, y: snap(0.5) + inset,
                                width: snap(18) - line, height: snap(13) - line)
             let frame = NSBezierPath(roundedRect: outer, xRadius: 2.5, yRadius: 2.5)
             frame.lineWidth = line
