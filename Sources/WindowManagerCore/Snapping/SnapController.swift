@@ -145,7 +145,7 @@ public final class SnapController {
         if d.session == nil {
             // Wait for the window to start changing to know whether this is a move or a resize.
             guard let now = WindowList.frame(of: d.windowID),
-                  let op = SnapEngine.Operation.detect(from: d.startFrame, to: now) else { drag = d; return true }
+                  let op = SnapEngine.Operation.detect(from: d.startFrame, to: now, grabbedAt: d.startMouse) else { drag = d; return true }
             // A window resized by hand keeps its new size: dragging it out of its zone later
             // leaves it alone.
             if op != .move { zones?.forget(d.windowID) }
