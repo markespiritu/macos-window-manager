@@ -202,7 +202,7 @@ private struct LayoutEditor: View {
                     .help("Delete this layout")
             }
             ZoneCanvas(layout: $layout, screen: screen, hideFree: hideFree)
-            Text("Right-click a zone to split or remove it, and drag the lines between zones to resize them. Add Zone puts a free zone on top: drag it to move it, drag its edges or corners to resize it (they stick to other zones and to ½ ⅓ ¼ of the screen), and right-click it to change its layer. The lines between split zones stay draggable on top; Hide Free Zones fades the free zones so you can right-click the zones under them. Sizes are in points on this display, and as a share of the screen.")
+            Text("Right-click a zone to split or remove it, and drag the lines between zones to resize them. Add Zone puts a free zone on top: drag it to move it, drag its edges or corners to resize it (they stick to other zones and to ½ ⅓ ¼ of the screen), and right-click it to change its layer. The lines between split zones stay draggable on top; Hide Free Zones fades the free zones so you can right-click the zones under them. Sizes are in points on this display, and as a share of the screen; double-click a size to type an exact one.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -219,6 +219,10 @@ private struct ZoneCanvas: View {
     /// The free zone being dragged: its rect when the drag started and the edges being moved
     /// (`.all` for a move).
     @State private var floatDrag: (id: UUID, start: CGRect, edges: Edges)?
+    /// The zone size being typed in: which zone, which dimension, and the text so far.
+    @State private var editing: (zone: Int, axis: SplitAxis)?
+    @State private var editText = ""
+    @FocusState private var editFocused: Bool
 
     var body: some View {
         GeometryReader { geo in
@@ -276,7 +280,7 @@ private struct ZoneCanvas: View {
                 VStack(spacing: 2) {
                     Text("\(i + 1)").font(.system(size: min(max(min(r.width, r.height) / 5, 11), 24), weight: .semibold))
                     if r.width > 70 && r.height > 50 {
-                        Text(verbatim: "\(Int(real.width)) × \(Int(real.height))").font(.system(size: 11, weight: .medium)).monospacedDigit()
+                        sizeLine(i, real)
                         Text(verbatim: "\(pw)% × \(ph)%").font(.system(size: 10)).monospacedDigit().opacity(0.8)
                     }
                 }
@@ -297,13 +301,60 @@ private struct ZoneCanvas: View {
             }
     }
 
+    /// "630 × 1488": double-click either number to type a new size. The zones on the other side
+    /// of the moved line give or take the difference.
+    private func sizeLine(_ i: Int, _ real: CGRect) -> some View {
+        HStack(spacing: 3) {
+            dimension(i, .columns, Int(real.width))
+            Text(verbatim: "×")
+            dimension(i, .rows, Int(real.height))
+        }
+        .font(.system(size: 11, weight: .medium))
+        .monospacedDigit()
+    }
+
+    @ViewBuilder
+    private func dimension(_ i: Int, _ axis: SplitAxis, _ value: Int) -> some View {
+        if let e = editing, e.zone == i, e.axis == axis {
+            TextField("", text: $editText)
+                .textFieldStyle(.roundedBorder)
+                .frame(width: 56)
+                .focused($editFocused)
+                .onSubmit { commitEdit() }
+                .onExitCommand { editing = nil }
+                .onChange(of: editFocused) { _, focused in if !focused { commitEdit() } }
+        } else {
+            Text(verbatim: "\(value)")
+                .padding(.horizontal, 2)
+                .background(RoundedRectangle(cornerRadius: 3).fill(Color.white.opacity(0.001)))
+                .onTapGesture(count: 2) {
+                    editText = "\(value)"
+                    editing = (i, axis)
+                    DispatchQueue.main.async { editFocused = true }
+                }
+                .help(axis == .columns ? "Double-click to type a width" : "Double-click to type a height")
+        }
+    }
+
+    private func commitEdit() {
+        guard let e = editing else { return }
+        editing = nil
+        guard let v = Double(editText.trimmingCharacters(in: .whitespaces)) else { return }
+        var l = layout
+        if l.setSize(ofZone: e.zone, along: e.axis, to: CGFloat(v), in: CGRect(origin: .zero, size: screen)) {
+            layout = l
+        } else {
+            NSSound.beep() // e.g. the height of a zone that already fills the screen top to bottom
+        }
+    }
+
     private func label(_ i: Int, _ r: CGRect, real: CGRect) -> some View {
         let pw = Int((real.width / max(screen.width, 1) * 100).rounded())
         let ph = Int((real.height / max(screen.height, 1) * 100).rounded())
         return VStack(spacing: 2) {
             Text("\(i + 1)").font(.system(size: min(max(min(r.width, r.height) / 5, 11), 24), weight: .semibold))
             if r.width > 70 && r.height > 50 {
-                Text(verbatim: "\(Int(real.width)) × \(Int(real.height))").font(.system(size: 11, weight: .medium)).monospacedDigit()
+                sizeLine(i, real)
                 Text(verbatim: "\(pw)% × \(ph)%").font(.system(size: 10)).monospacedDigit().opacity(0.8)
             }
         }

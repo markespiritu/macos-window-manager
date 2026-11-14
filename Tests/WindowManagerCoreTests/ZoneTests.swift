@@ -133,3 +133,42 @@ final class OverlappingZoneTests: XCTestCase {
         XCTAssertEqual(l.floating, [])
     }
 }
+
+final class ZoneSizeEditTests: XCTestCase {
+    let screen = CGRect(x: 0, y: 25, width: 1200, height: 800)
+
+    func testWidthMovesRightLine() {
+        var l = ZoneTemplate.columns.layout(zones: 3, spacing: 10)
+        XCTAssertTrue(l.setSize(ofZone: 0, along: .columns, to: 630, in: screen))
+        let r = l.zoneRects(in: screen)
+        XCTAssertEqual(r[0].width, 630, accuracy: 1)
+        XCTAssertEqual(r[2].maxX, 1190) // the far side stays
+    }
+
+    func testLastZoneMovesLeftLine() {
+        var l = ZoneTemplate.columns.layout(zones: 2, spacing: 0)
+        XCTAssertTrue(l.setSize(ofZone: 1, along: .columns, to: 400, in: screen))
+        let r = l.zoneRects(in: screen)
+        XCTAssertEqual(r[1].width, 400, accuracy: 1)
+        XCTAssertEqual(r[0].width, 800, accuracy: 1)
+    }
+
+    func testNestedZoneHeight() {
+        var l = ZoneTemplate.grid.layout(zones: 4, spacing: 0)
+        XCTAssertTrue(l.setSize(ofZone: 0, along: .rows, to: 300, in: screen))
+        XCTAssertEqual(l.zoneRects(in: screen)[0].height, 300, accuracy: 1)
+        XCTAssertFalse(l.setSize(ofZone: 0, along: .rows, to: 300, in: screen) == false)
+        // A full-height column has no horizontal line to move.
+        var c = ZoneTemplate.columns.layout(zones: 2)
+        XCTAssertFalse(c.setSize(ofZone: 0, along: .rows, to: 300, in: screen))
+    }
+
+    func testFreeZoneResizes() {
+        var l = ZoneTemplate.columns.layout(zones: 2, spacing: 0)
+        l.floating = [FloatingZone(rect: CGRect(x: 0.5, y: 0, width: 0.25, height: 0.5))]
+        XCTAssertTrue(l.setSize(ofZone: 2, along: .columns, to: 900, in: screen))
+        let f = l.zoneRects(in: screen)[2]
+        XCTAssertEqual(f.width, 900, accuracy: 1)
+        XCTAssertEqual(f.maxX, 1200, accuracy: 1) // pushed back on screen
+    }
+}

@@ -267,6 +267,46 @@ public struct ZoneLayout: Codable, Hashable, Identifiable, Sendable {
         root.zoneRects(in: frame, spacing: CGFloat(spacing)) + floating.map { $0.frame(in: frame) }
     }
 
+    /// Sets a zone's width (`.columns`) or height (`.rows`) to `value` points on a display whose
+    /// usable area is `frame`. A split zone moves the line on its right (or bottom) edge, or the
+    /// one on its left (or top) when it has none there, so the zones on the other side give or take
+    /// the difference. A free zone just resizes, staying on screen. Returns false when the size
+    /// cannot change (a split zone filling the whole axis).
+    @discardableResult
+    public mutating func setSize(ofZone i: Int, along axis: SplitAxis, to value: CGFloat, in frame: CGRect) -> Bool {
+        let rects = zoneRects(in: frame)
+        guard rects.indices.contains(i), value >= 1 else { return false }
+        let r = rects[i]
+        let base = root.zoneCount
+        if i >= base {
+            var f = r
+            if axis == .columns {
+                f.size.width = min(value, frame.width)
+                if f.maxX > frame.maxX { f.origin.x = frame.maxX - f.width }
+            } else {
+                f.size.height = min(value, frame.height)
+                if f.maxY > frame.maxY { f.origin.y = frame.maxY - f.height }
+            }
+            floating[i - base].rect = FloatingZone.fraction(of: f, in: frame)
+            return true
+        }
+        let gap = CGFloat(spacing)
+        let lines = root.dividers(in: frame, spacing: gap).filter { $0.axis == axis }
+        func across(_ d: ZoneNode.Divider) -> Bool {
+            axis == .columns ? d.rect.minY < r.maxY && d.rect.maxY > r.minY : d.rect.minX < r.maxX && d.rect.maxX > r.minX
+        }
+        let tolerance: CGFloat = 1.5
+        if let d = lines.first(where: { across($0) && abs((axis == .columns ? $0.rect.minX - r.maxX : $0.rect.minY - r.maxY)) <= tolerance }) {
+            root.move(d, to: (axis == .columns ? r.minX : r.minY) + value + gap / 2, spacing: gap)
+            return true
+        }
+        if let d = lines.first(where: { across($0) && abs((axis == .columns ? $0.rect.maxX - r.minX : $0.rect.maxY - r.minY)) <= tolerance }) {
+            root.move(d, to: (axis == .columns ? r.maxX : r.maxY) - value - gap / 2, spacing: gap)
+            return true
+        }
+        return false
+    }
+
     /// The layer of each zone, parallel to `zoneRects`: 0 for split zones, 1... for free zones.
     public var zoneLayers: [Int] {
         Array(repeating: 0, count: root.zoneCount) + floating.indices.map { $0 + 1 }
