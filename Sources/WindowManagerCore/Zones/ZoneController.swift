@@ -110,16 +110,10 @@ public final class ZoneController {
 
     // MARK: Hotkeys
 
-    /// Applies the n-th layout (0-based) to the display of the focused window, else the display
-    /// under the mouse, and shows its zones for a moment.
-    public func applyLayout(at index: Int) {
-        guard store.layouts.indices.contains(index) else { NSSound.beep(); return }
-        let displays = DisplayService.displays
-        let target = service.focusedWindow()?.frame.flatMap { DisplayService.display(for: $0, in: displays) }
-            ?? displays.first { $0.frame.contains(Self.mouseLocation) }
-        guard let display = target else { return }
-        store.assign(store.layouts[index].id, to: display)
-        overlay.flash([(display, store.zones(on: display))])
+    /// Uses a layout on a display (from the menu bar) and shows its zones for a moment.
+    public func apply(_ layoutID: UUID, to display: Display) {
+        store.assign(layoutID, to: display)
+        overlay.flash([(display, store.zones(on: display))], seconds: 0.8)
     }
 
     /// Moves the focused window to the next (`step` 1) or previous (-1) zone, in zone order, on
