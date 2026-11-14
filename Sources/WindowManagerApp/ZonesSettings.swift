@@ -223,8 +223,10 @@ private struct LayoutThumbnail: View {
                 .frame(maxWidth: 50 * aspect + 10)
         }
         .padding(5)
+        // White while the list has focus (like a selected zone): this is the layout Delete deletes.
         .background(RoundedRectangle(cornerRadius: 7).fill(selected && focused ? Color.accentColor.opacity(0.2) : .clear))
-        .background(RoundedRectangle(cornerRadius: 7).stroke(selected ? Color.accentColor : .clear, lineWidth: 2))
+        .background(RoundedRectangle(cornerRadius: 7).stroke(selected ? (focused ? Color.white : Color.accentColor) : .clear,
+                                                            lineWidth: selected && focused ? 3 : 2))
         .contentShape(Rectangle())
     }
 }
