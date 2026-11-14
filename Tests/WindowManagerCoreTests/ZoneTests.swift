@@ -188,3 +188,16 @@ final class ZoneRulerTests: XCTestCase {
         XCTAssertTrue(ZoneRuler.measures(for: 0, in: rects, screen: screen).isEmpty)
     }
 }
+
+final class ZoneNudgeTests: XCTestCase {
+    func testMoveFreeZoneStaysOnScreen() {
+        let screen = CGRect(x: 0, y: 0, width: 1000, height: 800)
+        var l = ZoneTemplate.columns.layout(zones: 2, spacing: 0)
+        l.floating = [FloatingZone(rect: CGRect(x: 0.1, y: 0.1, width: 0.2, height: 0.2))]
+        XCTAssertTrue(l.move(zone: 2, dx: 1, dy: 10, in: screen))
+        XCTAssertEqual(l.zoneRects(in: screen)[2].origin, CGPoint(x: 101, y: 90))
+        l.move(zone: 2, dx: -5000, dy: 0, in: screen)
+        XCTAssertEqual(l.zoneRects(in: screen)[2].minX, 0)
+        XCTAssertFalse(l.move(zone: 0, dx: 1, dy: 0, in: screen)) // split zones don't move
+    }
+}

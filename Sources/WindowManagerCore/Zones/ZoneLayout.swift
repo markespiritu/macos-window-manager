@@ -307,6 +307,20 @@ public struct ZoneLayout: Codable, Hashable, Identifiable, Sendable {
         return false
     }
 
+    /// Moves a free zone by (dx, dy) points, keeping it on screen. Split zones don't move (their
+    /// size changes with `setSize`). Returns false when nothing moved.
+    @discardableResult
+    public mutating func move(zone i: Int, dx: CGFloat, dy: CGFloat, in frame: CGRect) -> Bool {
+        let base = root.zoneCount
+        guard i >= base, floating.indices.contains(i - base) else { return false }
+        let r = floating[i - base].frame(in: frame)
+        let x = min(max(r.minX + dx, frame.minX), frame.maxX - r.width)
+        let y = min(max(r.minY + dy, frame.minY), frame.maxY - r.height)
+        guard x != r.minX || y != r.minY else { return false }
+        floating[i - base].rect = FloatingZone.fraction(of: CGRect(x: x, y: y, width: r.width, height: r.height), in: frame)
+        return true
+    }
+
     /// The layer of each zone, parallel to `zoneRects`: 0 for split zones, 1... for free zones.
     public var zoneLayers: [Int] {
         Array(repeating: 0, count: root.zoneCount) + floating.indices.map { $0 + 1 }

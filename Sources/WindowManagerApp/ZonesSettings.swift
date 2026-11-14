@@ -202,7 +202,7 @@ private struct LayoutEditor: View {
                     .help("Delete this layout")
             }
             ZoneCanvas(layout: $layout, screen: screen, hideFree: hideFree)
-            Text("Right-click a zone to split or remove it, and drag the lines between zones to resize them. Add Zone puts a free zone on top: drag it to move it, drag its edges or corners to resize it (they stick to other zones and to ½ ⅓ ¼ of the screen), and right-click it to change its layer. The lines between split zones stay draggable on top; Hide Free Zones fades the free zones so you can right-click the zones under them. Sizes are in points on this display, and as a share of the screen; double-click a size to type an exact one. Click a zone to select it and press Delete to remove it.")
+            Text("Right-click a zone to split or remove it, and drag the lines between zones to resize them. Add Zone puts a free zone on top: drag it to move it, drag its edges or corners to resize it (they stick to other zones and to ½ ⅓ ¼ of the screen), and right-click it to change its layer. The lines between split zones stay draggable on top; Hide Free Zones fades the free zones so you can right-click the zones under them. Sizes are in points on this display, and as a share of the screen; double-click a size to type an exact one. Click a zone to select it: Delete removes it, arrows move a free zone (⇧ for 10 pt), ⌥ arrows resize it, and arrows resize a split zone.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -284,6 +284,14 @@ private struct ZoneCanvas: View {
             return .handled
         }
         .onKeyPress(.escape) { selected = nil; return .handled }
+        // Arrows: move a free zone 1 pt (⇧ 10 pt). ⌥ arrows, and plain arrows on a split zone,
+        // resize instead: → / ↓ grow the width / height, ← / ↑ shrink it.
+        .onKeyPress(keys: [.leftArrow, .rightArrow, .upArrow, .downArrow]) { press in
+            guard editing == nil, let i = selected else { return .ignored }
+            nudge(i, key: press.key, step: press.modifiers.contains(.shift) ? 10 : 1,
+                  resize: press.modifiers.contains(.option))
+            return .handled
+        }
         .onChange(of: layout.zoneCount) { _, n in if let s = selected, s >= n { selected = nil } }
     }
 
@@ -376,6 +384,29 @@ private struct ZoneCanvas: View {
         canvasFocused = true
     }
 
+    private func nudge(_ i: Int, key: KeyEquivalent, step: CGFloat, resize: Bool) {
+        let frame = CGRect(origin: .zero, size: screen)
+        var dx: CGFloat = 0, dy: CGFloat = 0
+        switch key {
+        case .leftArrow: dx = -step
+        case .rightArrow: dx = step
+        case .upArrow: dy = -step
+        default: dy = step
+        }
+        var l = layout
+        let changed: Bool
+        if resize || i < l.root.zoneCount {
+            let rects = l.zoneRects(in: frame)
+            guard rects.indices.contains(i) else { return }
+            changed = dx != 0
+                ? l.setSize(ofZone: i, along: .columns, to: rects[i].width + dx, in: frame)
+                : l.setSize(ofZone: i, along: .rows, to: rects[i].height + dy, in: frame)
+        } else {
+            changed = l.move(zone: i, dx: dx, dy: dy, in: frame)
+        }
+        if changed { layout = l } else { NSSound.beep() }
+    }
+
     /// Removes a split zone (not the last one; its neighbour takes the space) or a free zone.
     private func removeZone(_ i: Int) {
         let base = layout.root.zoneCount
@@ -395,7 +426,7 @@ private struct ZoneCanvas: View {
     /// The zone whose distances the rulers show.
     private var activeZone: Int? {
         if let id = floatDrag?.id, let k = layout.floating.firstIndex(where: { $0.id == id }) { return layout.root.zoneCount + k }
-        return hovered
+        return hovered ?? selected // the selected zone keeps its rulers while moved with the keyboard
     }
 
     private func label(_ i: Int, _ r: CGRect, real: CGRect) -> some View {
