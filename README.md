@@ -36,9 +36,9 @@ turned off from the menu bar.
 
 ### Zones (FancyZones-style layouts)
 
-Each display has a zone layout. Hold Shift while moving a window to show its zones, and release
+Each display has a zone layout. Hold Option (configurable: Shift, Command or Control) while moving a window to show its zones, and release
 over one to drop the window into it (Settings › Zones can show them on every drag instead). Hover
-the border between zones to span both; hold Control as well to span every zone between where
+the border between zones to span both; hold Control as well (Shift when Control is the zone key) to span every zone between where
 Control went down and the cursor. A window dragged out of a zone gets its previous size back.
 
 - ⌃⌥⌘1–9 picks layout 1–9 for the display of the focused window.

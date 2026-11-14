@@ -3,10 +3,38 @@ import Combine
 
 /// When dragging a window shows the zones.
 public enum ZoneActivation: String, Codable, CaseIterable, Sendable {
-    /// Only while Shift is held (normal drags keep edge snapping).
-    case holdShift
-    /// On every window move; holding Shift hides them for that drag.
+    /// Only while the zone modifier is held (normal drags keep edge snapping).
+    case hold = "holdShift"
+    /// On every window move; holding the zone modifier hides them for that drag.
     case always
+}
+
+/// The key that shows (or, in `always` mode, hides) zones during a drag.
+public enum ZoneModifier: String, Codable, CaseIterable, Identifiable, Sendable {
+    case option, shift, command, control
+
+    public var id: String { rawValue }
+
+    public var flag: CGEventFlags {
+        switch self {
+        case .option: .maskAlternate
+        case .shift: .maskShift
+        case .command: .maskCommand
+        case .control: .maskControl
+        }
+    }
+
+    public var label: String {
+        switch self {
+        case .option: "⌥ Option"
+        case .shift: "⇧ Shift"
+        case .command: "⌘ Command"
+        case .control: "⌃ Control"
+        }
+    }
+
+    /// The key that spans several zones: Control, or Shift when Control is the zone key.
+    public var spanModifier: ZoneModifier { self == .control ? .shift : .control }
 }
 
 /// The zone layouts, which layout each display uses, and zone preferences. Persisted as JSON in
@@ -23,6 +51,7 @@ public final class ZoneStore: ObservableObject {
     @Published public var assignments: [String: UUID] { didSet { save() } }
     @Published public var enabled: Bool { didSet { save() } }
     @Published public var activation: ZoneActivation { didSet { save() } }
+    @Published public var modifier: ZoneModifier { didSet { save() } }
     /// Drop a window on the border between two zones to span both.
     @Published public var spanAdjacentZones: Bool { didSet { save() } }
     /// A window dragged out of a zone gets back the size it had before it was put there.
@@ -33,6 +62,7 @@ public final class ZoneStore: ObservableObject {
         var assignments: [String: UUID]
         var enabled: Bool
         var activation: ZoneActivation
+        var modifier: ZoneModifier?
         var spanAdjacentZones: Bool?
         var restoreSizeOnDragOut: Bool
     }
@@ -51,13 +81,14 @@ public final class ZoneStore: ObservableObject {
         layouts = saved?.layouts.isEmpty == false ? saved!.layouts : Self.defaultLayouts
         assignments = saved?.assignments ?? [:]
         enabled = saved?.enabled ?? true
-        activation = saved?.activation ?? .holdShift
+        activation = saved?.activation ?? .hold
+        modifier = saved?.modifier ?? .option
         spanAdjacentZones = saved?.spanAdjacentZones ?? true
         restoreSizeOnDragOut = saved?.restoreSizeOnDragOut ?? true
     }
 
     private func save() {
-        let s = Saved(layouts: layouts, assignments: assignments, enabled: enabled, activation: activation,
+        let s = Saved(layouts: layouts, assignments: assignments, enabled: enabled, activation: activation, modifier: modifier,
                       spanAdjacentZones: spanAdjacentZones, restoreSizeOnDragOut: restoreSizeOnDragOut)
         if let data = try? JSONEncoder().encode(s) { defaults.set(data, forKey: Self.key) }
     }

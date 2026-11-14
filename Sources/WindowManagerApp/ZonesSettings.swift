@@ -40,15 +40,23 @@ struct ZonesSettings: View {
             Toggle("Drop windows into zones when moving them", isOn: $store.enabled)
             HStack(spacing: 16) {
                 Picker("Show zones", selection: $store.activation) {
-                    Text("While holding ⇧ Shift").tag(ZoneActivation.holdShift)
-                    Text("Always (⇧ Shift to skip)").tag(ZoneActivation.always)
+                    Text("While holding").tag(ZoneActivation.hold)
+                    Text("Always, except holding").tag(ZoneActivation.always)
                 }
                 .fixedSize()
+                Picker("Key", selection: $store.modifier) {
+                    ForEach(ZoneModifier.allCases) { Text($0.label).tag($0) }
+                }
+                .labelsHidden()
+                .fixedSize()
+            }
+            .disabled(!store.enabled)
+            HStack(spacing: 16) {
                 Toggle("Span zones at borders", isOn: $store.spanAdjacentZones)
                 Toggle("Restore size when dragged out", isOn: $store.restoreSizeOnDragOut)
             }
             .disabled(!store.enabled)
-            Text("Hold ⌃ Control too to span several zones. ⌃⌥⌘1–9 switches the layout of the current display; ⌃⌥⌘← / → moves the focused window between zones.")
+            Text("Hold \(store.modifier.spanModifier.label) too to span several zones. ⌃⌥⌘1–9 switches the layout of the current display; ⌃⌥⌘← / → moves the focused window between zones.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)

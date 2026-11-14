@@ -27,8 +27,8 @@ public final class ZoneController {
 
     public func isActive(_ flags: CGEventFlags) -> Bool {
         guard store.enabled else { return false }
-        let shift = flags.contains(.maskShift)
-        return store.activation == .holdShift ? shift : !shift
+        let held = flags.contains(store.modifier.flag)
+        return store.activation == .hold ? held : !held
     }
 
     /// Call when a window move starts.
@@ -49,7 +49,7 @@ public final class ZoneController {
         let (display, rects) = dragZones[di]
         let current = ZonePicker.zones(at: mouse, in: rects, spanAdjacent: store.spanAdjacentZones)
         var selected = current
-        if flags.contains(.maskControl) {
+        if flags.contains(store.modifier.spanModifier.flag) {
             if anchor?.display != display.id, !current.isEmpty { anchor = (display.id, current) }
             if let a = anchor { selected = ZonePicker.span(a.zones + current, in: rects) }
         } else {
