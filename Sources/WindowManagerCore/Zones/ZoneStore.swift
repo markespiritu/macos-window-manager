@@ -88,7 +88,7 @@ public final class ZoneStore: ObservableObject {
         modifier = saved?.modifier ?? .option
         spanAdjacentZones = saved?.spanAdjacentZones ?? true
         restoreSizeOnDragOut = saved?.restoreSizeOnDragOut ?? true
-        overlapRule = saved?.overlapRule ?? .smallest
+        overlapRule = saved?.overlapRule ?? .topmost
     }
 
     private func save() {

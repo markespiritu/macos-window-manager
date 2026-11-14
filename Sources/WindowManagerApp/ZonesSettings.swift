@@ -54,8 +54,8 @@ struct ZonesSettings: View {
             .disabled(!store.enabled)
             HStack(spacing: 16) {
                 Picker("Where zones overlap", selection: $store.overlapRule) {
+                    Text("Use the top-most zone (highest number)").tag(ZoneOverlapRule.topmost)
                     Text("Use the smallest zone").tag(ZoneOverlapRule.smallest)
-                    Text("Use the top-most zone").tag(ZoneOverlapRule.topmost)
                     Text("Use the zone whose centre is closest").tag(ZoneOverlapRule.closestCenter)
                 }
                 .fixedSize()
