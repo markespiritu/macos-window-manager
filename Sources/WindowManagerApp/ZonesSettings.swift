@@ -202,7 +202,7 @@ private struct LayoutEditor: View {
                     .help("Delete this layout")
             }
             ZoneCanvas(layout: $layout, screen: screen, hideFree: hideFree)
-            Text("Right-click a zone to split or remove it, and drag the lines between zones to resize them. Add Zone puts a free zone on top: drag it to move it, drag its edges or corners to resize it (they stick to other zones and to ½ ⅓ ¼ of the screen), and right-click it to change its layer. The lines between split zones stay draggable on top; Hide Free Zones fades the free zones so you can right-click the zones under them. Sizes are in points on this display, and as a share of the screen; double-click a size to type an exact one.")
+            Text("Right-click a zone to split or remove it, and drag the lines between zones to resize them. Add Zone puts a free zone on top: drag it to move it, drag its edges or corners to resize it (they stick to other zones and to ½ ⅓ ¼ of the screen), and right-click it to change its layer. The lines between split zones stay draggable on top; Hide Free Zones fades the free zones so you can right-click the zones under them. Sizes are in points on this display, and as a share of the screen; double-click a size to type an exact one. Click a zone to select it and press Delete to remove it.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -216,6 +216,9 @@ private struct ZoneCanvas: View {
     let screen: CGSize
     let hideFree: Bool
     @State private var hovered: Int?
+    /// The zone a click selected; Delete removes it.
+    @State private var selected: Int?
+    @FocusState private var canvasFocused: Bool
     /// The free zone being dragged: its rect when the drag started and the edges being moved
     /// (`.all` for a move).
     @State private var floatDrag: (id: UUID, start: CGRect, edges: Edges)?
@@ -271,6 +274,17 @@ private struct ZoneCanvas: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .frame(minHeight: 200)
+        // Keyboard: Delete / Forward Delete removes the selected zone, Esc deselects.
+        .focusable()
+        .focusEffectDisabled()
+        .focused($canvasFocused)
+        .onKeyPress(keys: [.delete, .deleteForward]) { _ in
+            guard editing == nil, let i = selected else { return .ignored }
+            removeZone(i)
+            return .handled
+        }
+        .onKeyPress(.escape) { selected = nil; return .handled }
+        .onChange(of: layout.zoneCount) { _, n in if let s = selected, s >= n { selected = nil } }
     }
 
     /// `covers`: the free zones' rects; the label moves to a part of the zone they leave visible.
@@ -281,7 +295,8 @@ private struct ZoneCanvas: View {
         let ph = Int((real.height / max(screen.height, 1) * 100).rounded())
         return RoundedRectangle(cornerRadius: 5)
             .fill(Color.accentColor.opacity(on ? 0.5 : 0.3))
-            .overlay(RoundedRectangle(cornerRadius: 5).stroke(Color.accentColor, lineWidth: on ? 2 : 1))
+            .overlay(RoundedRectangle(cornerRadius: 5).stroke(selected == i ? Color.white : Color.accentColor, lineWidth: selected == i ? 3 : (on ? 2 : 1)))
+
             .overlay(alignment: .topLeading) {
                 VStack(spacing: 2) {
                     Text("\(i + 1)").font(.system(size: min(max(min(r.width, r.height) / 5, 11), 24), weight: .semibold))
@@ -295,13 +310,15 @@ private struct ZoneCanvas: View {
                 .position(x: spot.x - r.minX, y: spot.y - r.minY)
             }
             .frame(width: max(r.width, 1), height: max(r.height, 1))
+            .contentShape(Rectangle())
+            .onTapGesture { select(i) } // after the label overlay, so a click on the label selects too
             .onHover { hovered = $0 ? i : (hovered == i ? nil : hovered) }
             .help("Zone \(i + 1): \(Int(real.width)) × \(Int(real.height)) pt (\(pw)% × \(ph)% of the screen)")
             .contextMenu {
                 Button("Split Side by Side") { layout.root.split(zone: i, along: .columns) }
                 Button("Split Top and Bottom") { layout.root.split(zone: i, along: .rows) }
                 Divider()
-                Button("Remove Zone") { layout.root.remove(zone: i) }
+                Button("Remove Zone") { removeZone(i) }
                     .disabled(layout.root.zoneCount < 2)
             }
             .position(x: r.midX, y: r.midY) // last: modifiers after .position would cover the whole canvas
@@ -354,6 +371,27 @@ private struct ZoneCanvas: View {
         }
     }
 
+    private func select(_ i: Int) {
+        selected = i
+        canvasFocused = true
+    }
+
+    /// Removes a split zone (not the last one; its neighbour takes the space) or a free zone.
+    private func removeZone(_ i: Int) {
+        let base = layout.root.zoneCount
+        if i >= base {
+            guard layout.floating.indices.contains(i - base) else { return }
+            layout.floating.remove(at: i - base)
+        } else if base > 1 {
+            layout.root.remove(zone: i)
+        } else {
+            NSSound.beep()
+            return
+        }
+        selected = nil
+        hovered = nil
+    }
+
     /// The zone whose distances the rulers show.
     private var activeZone: Int? {
         if let id = floatDrag?.id, let k = layout.floating.firstIndex(where: { $0.id == id }) { return layout.root.zoneCount + k }
@@ -380,12 +418,13 @@ private struct ZoneCanvas: View {
         return RoundedRectangle(cornerRadius: 5)
             // See-through, so the zones underneath stay visible (their labels move out of the way).
             .fill(Color.orange.opacity(active ? 0.5 : 0.35))
-            .overlay(RoundedRectangle(cornerRadius: 5).stroke(Color.orange, lineWidth: active ? 2.5 : 1.5))
+            .overlay(RoundedRectangle(cornerRadius: 5).stroke(selected == i ? Color.white : Color.orange, lineWidth: selected == i ? 3 : (active ? 2.5 : 1.5)))
             .overlay(label(i, r, real: real))
             .overlay(alignment: .bottomTrailing) {
                 Image(systemName: "arrow.up.left.and.arrow.down.right").font(.system(size: 9)).foregroundStyle(.white.opacity(0.7)).padding(4)
             }
             .frame(width: max(r.width, 1), height: max(r.height, 1))
+            .onTapGesture { select(i) }
             .onHover { hovered = $0 ? i : (hovered == i ? nil : hovered) }
             .onContinuousHover(coordinateSpace: .named("canvas")) { phase in
                 guard floatDrag == nil else { return }
@@ -394,6 +433,7 @@ private struct ZoneCanvas: View {
             .gesture(DragGesture(minimumDistance: 1, coordinateSpace: .named("canvas"))
                 .onChanged { v in
                     if floatDrag?.id != f.id {
+                        select(i)
                         let e = Self.edges(at: v.startLocation, of: r)
                         floatDrag = (f.id, r, e.isEmpty ? .all : e)
                     }
@@ -417,7 +457,7 @@ private struct ZoneCanvas: View {
                 Button("Send to Back") { let z = layout.floating.remove(at: k); layout.floating.insert(z, at: 0) }
                     .disabled(k == 0)
                 Divider()
-                Button("Remove Zone") { layout.floating.remove(at: k) }
+                Button("Remove Zone") { removeZone(i) }
             }
             .position(x: r.midX, y: r.midY) // last: modifiers after .position would cover the whole canvas
     }
