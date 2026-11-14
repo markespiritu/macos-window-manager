@@ -4,7 +4,7 @@ A menu bar window manager for macOS 14+, written in Swift (SwiftUI + AppKit) wit
 dependencies. Windows snap to screen edges and to each other as you move and resize them, the way
 KWin does, and you can drop them into zone layouts you design yourself, like FancyZones.
 
-![Dragging a window into a zone](docs/images/zone-overlay.png)
+![Holding Option while dragging a window shows the display's zones; the highlighted one is where it lands](docs/images/zone-overlay.png)
 
 ## Features
 
