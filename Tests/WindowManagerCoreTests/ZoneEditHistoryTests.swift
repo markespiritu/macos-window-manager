@@ -139,4 +139,44 @@ final class ZoneEditHistoryTests: XCTestCase {
         history.deleteLayout(id)
         XCTAssertEqual(store.layouts.count, n)
     }
+
+    func testReorderLayoutsIsOneUndoStepAndPersists() {
+        let suite = "ZoneEditHistoryTests-reorder-\(UUID())"
+        let defaults = UserDefaults(suiteName: suite)!
+        store = ZoneStore(defaults: defaults)
+        history = ZoneEditHistory(store: store)
+        history.groupsByEvent = false
+        let before = store.layouts.map(\.id)
+        var order = before
+        order.insert(order.remove(at: 3), at: 0)
+        history.reorderLayouts(order)
+        XCTAssertEqual(store.layouts.map(\.id), order)
+        XCTAssertEqual(um.undoActionName, "Move Layout")
+        XCTAssertEqual(ZoneStore(defaults: defaults).layouts.map(\.id), order) // saved
+        um.undo()
+        XCTAssertEqual(store.layouts.map(\.id), before)
+        um.redo()
+        XCTAssertEqual(store.layouts.map(\.id), order)
+    }
+
+    func testReorderKeepsUnassignedDisplaysOnTheirLayout() {
+        let first = store.layouts[0].id
+        let other = store.layouts[2].id
+        store.assignments["display-B"] = other
+        history.reorderLayouts(Array(store.layouts.map(\.id).reversed()), keeping: ["display-A", "display-B"])
+        XCTAssertEqual(store.assignments["display-A"], first) // was using the first layout implicitly
+        XCTAssertEqual(store.assignments["display-B"], other)
+        um.undo()
+        XCTAssertNil(store.assignments["display-A"])
+        XCTAssertEqual(store.layouts[0].id, first)
+    }
+
+    func testReorderIgnoresBadOrders() {
+        let ids = store.layouts.map(\.id)
+        history.reorderLayouts(ids) // unchanged
+        history.reorderLayouts(Array(ids.dropLast()))
+        history.reorderLayouts(ids.dropLast() + [UUID()])
+        XCTAssertFalse(um.canUndo)
+        XCTAssertEqual(store.layouts.map(\.id), ids)
+    }
 }

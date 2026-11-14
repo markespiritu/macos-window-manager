@@ -16,6 +16,12 @@ struct ZonesSettings: View {
     /// the layout.
     @State private var selectedZone: Int?
     @FocusState private var layoutsFocused: Bool
+    /// The layout being dragged to a new place in the list, and the order shown while it is
+    /// (saved, as one undo step, when it is dropped).
+    @State private var draggedLayout: UUID?
+    @State private var dragOrder: [UUID]?
+    /// Each thumbnail's frame in the list, to find the one under the pointer during a drag.
+    @State private var thumbnailFrames: [UUID: CGRect] = [:]
 
     private var display: Display? { displays.first { $0.id == displayID } ?? displays.first }
 
@@ -138,12 +144,22 @@ struct ZonesSettings: View {
             do {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 50 * aspect(display) + 20), spacing: 10, alignment: .top)],
                           alignment: .leading, spacing: 8) {
-                    ForEach(Array(store.layouts.enumerated()), id: \.element.id) { i, layout in
+                    ForEach(Array(shownLayouts.enumerated()), id: \.element.id) { i, layout in
                         LayoutThumbnail(layout: layout, index: i,
                                         selected: store.layout(for: display)?.id == layout.id,
                                         focused: layoutsFocused,
                                         aspect: display.visibleFrame.width / max(display.visibleFrame.height, 1))
+                            .opacity(dragOrder != nil && draggedLayout == layout.id ? 0.35 : 1)
+                            .background(GeometryReader { g in
+                                Color.clear.preference(key: ThumbnailFrames.self, value: [layout.id: g.frame(in: .named("layouts"))])
+                            })
                             .onTapGesture { selectLayout(layout.id, on: display) }
+                            // Drag a layout to move it in the list (and in the menu bar's list).
+                            .onDrag {
+                                draggedLayout = layout.id
+                                dragOrder = store.layouts.map(\.id)
+                                return NSItemProvider(object: layout.id.uuidString as NSString)
+                            }
                             .contextMenu {
                                 Button("Duplicate") { duplicate(layout, on: display) }
                                 Divider()
@@ -153,6 +169,13 @@ struct ZonesSettings: View {
                     }
                 }
                 .padding(.vertical, 2)
+                .coordinateSpace(name: "layouts")
+                .onPreferenceChange(ThumbnailFrames.self) { thumbnailFrames = $0 }
+                .onDrop(of: [.text], delegate: LayoutReorderDrop(
+                    active: draggedLayout != nil,
+                    moved: { dragLayout(to: $0) },
+                    dropped: { dropLayout() },
+                    left: { withAnimation(.easeInOut(duration: 0.15)) { dragOrder = nil } }))
                 // Click a layout to select it (the zone selection is cleared): Delete then deletes
                 // the layout, after a confirmation.
                 .focusable()
@@ -165,6 +188,36 @@ struct ZonesSettings: View {
                 }
             }
         }
+    }
+
+    /// The layouts in list order, or in the order they would be dropped in during a drag.
+    private var shownLayouts: [ZoneLayout] {
+        guard let dragOrder else { return store.layouts }
+        let shown = dragOrder.compactMap(store.layout(id:))
+        return shown.count == store.layouts.count ? shown : store.layouts
+    }
+
+    /// During a drag: the dragged layout takes the place of the one under the pointer.
+    private func dragLayout(to point: CGPoint) {
+        guard let dragged = draggedLayout else { return }
+        var order = dragOrder ?? store.layouts.map(\.id)
+        guard let target = thumbnailFrames.first(where: { $0.value.contains(point) })?.key, target != dragged,
+              let from = order.firstIndex(of: dragged), let to = order.firstIndex(of: target) else {
+            if dragOrder == nil { dragOrder = order }
+            return
+        }
+        order.remove(at: from)
+        order.insert(dragged, at: to)
+        withAnimation(.easeInOut(duration: 0.15)) { dragOrder = order }
+    }
+
+    private func dropLayout() {
+        if let order = dragOrder {
+            // Displays without a layout of their own keep the one they use now.
+            history.reorderLayouts(order, keeping: displays.map(ZoneStore.key(for:)))
+        }
+        dragOrder = nil
+        draggedLayout = nil
     }
 
     private func selectLayout(_ id: UUID, on display: Display) {
@@ -190,6 +243,36 @@ struct ZonesSettings: View {
 
     private func binding(for id: UUID, fallback: ZoneLayout) -> Binding<ZoneLayout> {
         Binding(get: { store.layout(id: id) ?? fallback }, set: { store.update($0) })
+    }
+}
+
+/// Frames of the layout thumbnails, by layout id, in the list's coordinate space.
+private struct ThumbnailFrames: PreferenceKey {
+    static let defaultValue: [UUID: CGRect] = [:]
+    static func reduce(value: inout [UUID: CGRect], nextValue: () -> [UUID: CGRect]) {
+        value.merge(nextValue()) { $1 }
+    }
+}
+
+/// Drops on the layout list: only a layout dragged from the list itself is accepted.
+private struct LayoutReorderDrop: DropDelegate {
+    let active: Bool
+    let moved: (CGPoint) -> Void
+    let dropped: () -> Void
+    let left: () -> Void
+
+    func validateDrop(info: DropInfo) -> Bool { active }
+    func dropEntered(info: DropInfo) { if active { moved(info.location) } }
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        guard active else { return nil }
+        moved(info.location)
+        return DropProposal(operation: .move)
+    }
+    func dropExited(info: DropInfo) { if active { left() } }
+    func performDrop(info: DropInfo) -> Bool {
+        guard active else { return false }
+        dropped()
+        return true
     }
 }
 
@@ -273,7 +356,7 @@ private struct LayoutEditor: View {
                     .help("Delete this layout")
             }
             ZoneCanvas(layout: layout, history: history, screen: screen, hideFree: hideFree, selected: $selected)
-            Text("Click a layout above to select it: Delete deletes it (after asking), and right-click it to duplicate or delete it. Right-click a zone to split or remove it, and drag the lines between zones to resize them. Add Zone puts a free zone on top: drag it to move it, drag its edges or corners to resize it (they stick to other zones and to ½ ⅓ ¼ of the screen), and right-click it to change its layer. The lines between split zones stay draggable on top; Hide Free Zones fades the free zones so you can right-click the zones under them. Sizes are in points on this display, and as a share of the screen; double-click a size to type an exact one. Click a zone to select it: Delete removes it (after asking), arrows move a free zone (⇧ for 10 pt), ⌥ arrows resize it, and arrows resize a split zone. ⌘Z undoes, ⇧⌘Z redoes.")
+            Text("Click a layout above to select it: Delete deletes it (after asking), drag it to move it in the list (the menu bar lists layouts in the same order), and right-click it to duplicate or delete it. Right-click a zone to split or remove it, and drag the lines between zones to resize them. Add Zone puts a free zone on top: drag it to move it, drag its edges or corners to resize it (they stick to other zones and to ½ ⅓ ¼ of the screen), and right-click it to change its layer. The lines between split zones stay draggable on top; Hide Free Zones fades the free zones so you can right-click the zones under them. Sizes are in points on this display, and as a share of the screen; double-click a size to type an exact one. Click a zone to select it: Delete removes it (after asking), arrows move a free zone (⇧ for 10 pt), ⌥ arrows resize it, and arrows resize a split zone. ⌘Z undoes, ⇧⌘Z redoes.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
