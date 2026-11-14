@@ -5,16 +5,19 @@ import WindowManagerCore
 /// Settings › Zones: preferences, the layout each display uses, and an editor for that layout.
 struct ZonesSettings: View {
     @ObservedObject var store: ZoneStore
-    /// Undo / redo for the layout editor (⌘Z, ⇧⌘Z and the Edit menu act on the layout shown).
+    /// Undo / redo for zone edits and layout list changes (⌘Z, ⇧⌘Z and the Edit menu).
     let history: ZoneEditHistory
     @State private var displays = DisplayService.displays
     @State private var displayID: CGDirectDisplayID = DisplayService.displays.first?.id ?? 0
-    @State private var confirmDelete = false
+    /// The layout a Delete is waiting on confirmation for.
+    @State private var layoutToDelete: ZoneLayout?
     @State private var confirmReset = false
+    /// The zone selected in the editor. Selecting a layout clears it, so Delete then applies to
+    /// the layout.
+    @State private var selectedZone: Int?
+    @FocusState private var layoutsFocused: Bool
 
     private var display: Display? { displays.first { $0.id == displayID } ?? displays.first }
-    /// The layout in the editor.
-    private var editedLayout: UUID? { display.flatMap { store.layout(for: $0)?.id } }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -25,22 +28,32 @@ struct ZonesSettings: View {
                 layoutPicker(for: display)
                 if let layout = store.layout(for: display) {
                     LayoutEditor(layout: binding(for: layout.id, fallback: layout), history: history, screen: display.visibleFrame.size,
-                                 canDelete: store.layouts.count > 1, onDelete: { confirmDelete = true })
-                        .confirmationDialog("Delete “\(layout.name)”?", isPresented: $confirmDelete) {
-                            Button("Delete Layout", role: .destructive) {
-                                store.delete(layout.id)
-                                history.forget(layout.id)
-                            }
-                        }
+                                 selected: $selectedZone,
+                                 canDelete: store.layouts.count > 1, onDelete: { layoutToDelete = layout })
                 }
             }
             }
             .disabled(!store.enabled)
         }
         .padding(16)
-        .onAppear { history.activeLayout = editedLayout }
-        .onChange(of: editedLayout) { _, id in history.activeLayout = id }
-        .onDisappear { history.activeLayout = nil } // another Settings tab: ⌘Z leaves zones alone
+        .confirmationDialog("Delete “\(layoutToDelete?.name ?? "")”?",
+                            isPresented: Binding(get: { layoutToDelete != nil }, set: { if !$0 { layoutToDelete = nil } }),
+                            presenting: layoutToDelete) { layout in
+            Button("Delete Layout", role: .destructive) { deleteLayout(layout.id) }
+        } message: { _ in
+            Text("Displays using it switch to the first layout. ⌘Z brings it back.")
+        }
+        .onAppear {
+            history.isEditorVisible = true
+            // Undoing an edit to a layout that isn't on screen shows it first.
+            history.show = { [store] id in
+                guard let d = display, store.layout(for: d)?.id != id else { return }
+                selectedZone = nil
+                store.assign(id, to: d)
+            }
+        }
+        .onDisappear { history.isEditorVisible = false } // another Settings tab: ⌘Z leaves zones alone
+        .onChange(of: displayID) { selectedZone = nil }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didChangeScreenParametersNotification)) { _ in
             displays = DisplayService.displays
         }
@@ -97,19 +110,15 @@ struct ZonesSettings: View {
                         Menu(t.name) {
                             ForEach(1...8, id: \.self) { n in
                                 Button("\(n) zone\(n == 1 ? "" : "s")") {
-                                    store.assign(store.add(t.layout(zones: n)).id, to: display)
+                                    selectedZone = nil
+                                    history.addLayout(t.layout(zones: n), showOn: ZoneStore.key(for: display))
                                 }
                             }
                         }
                     }
                     if let current = store.layout(for: display) {
                         Divider()
-                        Button("Duplicate “\(current.name)”") {
-                            var copy = current
-                            copy.id = UUID()
-                            copy.name += " copy"
-                            store.assign(store.add(copy).id, to: display)
-                        }
+                        Button("Duplicate “\(current.name)”") { duplicate(current, on: display) }
                     }
                 } label: {
                     Label("New Layout", systemImage: "plus")
@@ -118,11 +127,11 @@ struct ZonesSettings: View {
                 Button("Reset to Defaults…") { confirmReset = true }
                     .confirmationDialog("Reset all zone layouts?", isPresented: $confirmReset) {
                         Button("Reset Layouts", role: .destructive) {
-                            store.resetLayouts()
-                            history.forgetAll()
+                            selectedZone = nil
+                            history.resetLayouts()
                         }
                     } message: {
-                        Text("Your custom layouts are deleted and every display goes back to the first default layout.")
+                        Text("Your custom layouts are deleted and every display goes back to the first default layout. ⌘Z brings them back.")
                     }
             }
             // Wraps onto more rows as layouts are added, so none end up out of sight.
@@ -132,13 +141,49 @@ struct ZonesSettings: View {
                     ForEach(Array(store.layouts.enumerated()), id: \.element.id) { i, layout in
                         LayoutThumbnail(layout: layout, index: i,
                                         selected: store.layout(for: display)?.id == layout.id,
+                                        focused: layoutsFocused,
                                         aspect: display.visibleFrame.width / max(display.visibleFrame.height, 1))
-                            .onTapGesture { store.assign(layout.id, to: display) }
+                            .onTapGesture { selectLayout(layout.id, on: display) }
+                            .contextMenu {
+                                Button("Duplicate") { duplicate(layout, on: display) }
+                                Divider()
+                                Button("Delete “\(layout.name)”…") { layoutToDelete = layout }
+                                    .disabled(store.layouts.count < 2)
+                            }
                     }
                 }
                 .padding(.vertical, 2)
+                // Click a layout to select it (the zone selection is cleared): Delete then deletes
+                // the layout, after a confirmation.
+                .focusable()
+                .focusEffectDisabled()
+                .focused($layoutsFocused)
+                .onKeyPress(keys: [.delete, .deleteForward]) { _ in
+                    guard store.layouts.count > 1, let current = store.layout(for: display) else { return .ignored }
+                    layoutToDelete = current
+                    return .handled
+                }
             }
         }
+    }
+
+    private func selectLayout(_ id: UUID, on display: Display) {
+        selectedZone = nil
+        store.assign(id, to: display)
+        layoutsFocused = true
+    }
+
+    private func duplicate(_ layout: ZoneLayout, on display: Display) {
+        var copy = layout
+        copy.id = UUID()
+        copy.name += " copy"
+        selectedZone = nil
+        history.addLayout(copy, showOn: ZoneStore.key(for: display), "Duplicate Layout")
+    }
+
+    private func deleteLayout(_ id: UUID) {
+        selectedZone = nil
+        history.deleteLayout(id)
     }
 
     private func aspect(_ d: Display) -> CGFloat { d.visibleFrame.width / max(d.visibleFrame.height, 1) }
@@ -153,6 +198,8 @@ private struct LayoutThumbnail: View {
     let layout: ZoneLayout
     let index: Int
     let selected: Bool
+    /// The layout list has keyboard focus (Delete deletes the selected layout).
+    let focused: Bool
     let aspect: CGFloat
 
     var body: some View {
@@ -176,6 +223,7 @@ private struct LayoutThumbnail: View {
                 .frame(maxWidth: 50 * aspect + 10)
         }
         .padding(5)
+        .background(RoundedRectangle(cornerRadius: 7).fill(selected && focused ? Color.accentColor.opacity(0.2) : .clear))
         .background(RoundedRectangle(cornerRadius: 7).stroke(selected ? Color.accentColor : .clear, lineWidth: 2))
         .contentShape(Rectangle())
     }
@@ -186,6 +234,7 @@ private struct LayoutEditor: View {
     @Binding var layout: ZoneLayout
     let history: ZoneEditHistory
     let screen: CGSize
+    @Binding var selected: Int?
     let canDelete: Bool
     let onDelete: () -> Void
     @State private var hideFree = false
@@ -221,8 +270,8 @@ private struct LayoutEditor: View {
                     .disabled(!canDelete)
                     .help("Delete this layout")
             }
-            ZoneCanvas(layout: layout, history: history, screen: screen, hideFree: hideFree)
-            Text("Right-click a zone to split or remove it, and drag the lines between zones to resize them. Add Zone puts a free zone on top: drag it to move it, drag its edges or corners to resize it (they stick to other zones and to ½ ⅓ ¼ of the screen), and right-click it to change its layer. The lines between split zones stay draggable on top; Hide Free Zones fades the free zones so you can right-click the zones under them. Sizes are in points on this display, and as a share of the screen; double-click a size to type an exact one. Click a zone to select it: Delete removes it, arrows move a free zone (⇧ for 10 pt), ⌥ arrows resize it, and arrows resize a split zone. ⌘Z undoes, ⇧⌘Z redoes.")
+            ZoneCanvas(layout: layout, history: history, screen: screen, hideFree: hideFree, selected: $selected)
+            Text("Click a layout above to select it: Delete deletes it (after asking), and right-click it to duplicate or delete it. Right-click a zone to split or remove it, and drag the lines between zones to resize them. Add Zone puts a free zone on top: drag it to move it, drag its edges or corners to resize it (they stick to other zones and to ½ ⅓ ¼ of the screen), and right-click it to change its layer. The lines between split zones stay draggable on top; Hide Free Zones fades the free zones so you can right-click the zones under them. Sizes are in points on this display, and as a share of the screen; double-click a size to type an exact one. Click a zone to select it: Delete removes it (after asking), arrows move a free zone (⇧ for 10 pt), ⌥ arrows resize it, and arrows resize a split zone. ⌘Z undoes, ⇧⌘Z redoes.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -236,9 +285,10 @@ private struct ZoneCanvas: View {
     let history: ZoneEditHistory
     let screen: CGSize
     let hideFree: Bool
+    /// The zone a click selected; Delete removes it, after a confirmation.
+    @Binding var selected: Int?
     @State private var hovered: Int?
-    /// The zone a click selected; Delete removes it.
-    @State private var selected: Int?
+    @State private var zoneToDelete: Int?
     @FocusState private var canvasFocused: Bool
     /// The free zone being dragged: its rect when the drag started and the edges being moved
     /// (`.all` for a move).
@@ -304,8 +354,17 @@ private struct ZoneCanvas: View {
         .focused($canvasFocused)
         .onKeyPress(keys: [.delete, .deleteForward]) { _ in
             guard editing == nil, let i = selected else { return .ignored }
-            removeZone(i)
+            // The last split zone can't go (a free zone always can).
+            if i < layout.root.zoneCount && layout.root.zoneCount < 2 { NSSound.beep(); return .handled }
+            zoneToDelete = i
             return .handled
+        }
+        .confirmationDialog("Delete zone \((zoneToDelete ?? 0) + 1)?",
+                            isPresented: Binding(get: { zoneToDelete != nil }, set: { if !$0 { zoneToDelete = nil } }),
+                            presenting: zoneToDelete) { i in
+            Button("Delete Zone", role: .destructive) { removeZone(i) }
+        } message: { _ in
+            Text("⌘Z brings it back. To delete the whole layout, click it in the list above first.")
         }
         .onKeyPress(.escape) { selected = nil; return .handled }
         // Arrows: move a free zone 1 pt (⇧ 10 pt). ⌥ arrows, and plain arrows on a split zone,

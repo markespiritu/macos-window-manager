@@ -9,7 +9,7 @@ final class ZoneEditHistoryTests: XCTestCase {
     private var clock = Date(timeIntervalSince1970: 0)
     private var id: UUID { store.layouts[0].id }
     private var layout: ZoneLayout { store.layout(id: id)! }
-    private var um: UndoManager { history.manager(for: id) }
+    private var um: UndoManager { history.undoManager }
 
     override func setUp() async throws {
         let defaults = UserDefaults(suiteName: "ZoneEditHistoryTests-\(UUID())")!
@@ -91,14 +91,52 @@ final class ZoneEditHistoryTests: XCTestCase {
         XCTAssertEqual(layout, afterUndo)
     }
 
-    func testHistoriesArePerLayout() {
-        store.add(ZoneTemplate.columns.layout(zones: 2))
-        let other = store.layouts.last!.id
+    func testUndoShowsTheEditedLayout() {
+        var shown: [UUID] = []
+        history.show = { shown.append($0) }
         addZone(at: 0.1)
-        XCTAssertFalse(history.manager(for: other).canUndo)
-        history.activeLayout = other
-        XCTAssertTrue(history.activeManager === history.manager(for: other))
-        history.forget(id)
-        XCTAssertFalse(um.canUndo)
+        um.undo()
+        XCTAssertEqual(shown, [id])
+        history.isEditorVisible = false
+        XCTAssertNil(history.activeManager)
+        history.isEditorVisible = true
+        XCTAssertTrue(history.activeManager === um)
+    }
+
+    func testDeleteLayoutUndoRestoresItAndItsDisplays() {
+        let before = store.layouts
+        let victim = before[1].id
+        store.assignments["display-A"] = victim
+        history.deleteLayout(victim)
+        XCTAssertNil(store.layout(id: victim))
+        XCTAssertNil(store.assignments["display-A"])
+        XCTAssertEqual(um.undoActionName, "Delete Layout")
+        um.undo()
+        XCTAssertEqual(store.layouts, before)
+        XCTAssertEqual(store.assignments["display-A"], victim)
+        um.redo()
+        XCTAssertNil(store.layout(id: victim))
+    }
+
+    func testAddAndResetLayoutsUndo() {
+        let before = store.layouts
+        let l = history.addLayout(ZoneTemplate.columns.layout(zones: 2), showOn: "display-A")
+        XCTAssertEqual(store.assignments["display-A"], l.id)
+        history.edit(l.id, "Add Zone") { $0.floating.append(FloatingZone(rect: CGRect(x: 0.1, y: 0.1, width: 0.2, height: 0.2))) }
+        history.resetLayouts()
+        XCTAssertNil(store.layout(id: l.id))
+        um.undo() // reset
+        XCTAssertEqual(store.layout(id: l.id)?.floating.count, 1)
+        um.undo() // add zone
+        um.undo() // new layout
+        XCTAssertEqual(store.layouts, before)
+        XCTAssertNil(store.assignments["display-A"])
+    }
+
+    func testDeletingTheLastLayoutDoesNothing() {
+        while store.layouts.count > 1 { history.deleteLayout(store.layouts.last!.id) }
+        let n = store.layouts.count
+        history.deleteLayout(id)
+        XCTAssertEqual(store.layouts.count, n)
     }
 }
