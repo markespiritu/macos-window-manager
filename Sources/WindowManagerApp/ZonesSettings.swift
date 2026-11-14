@@ -202,7 +202,7 @@ private struct LayoutEditor: View {
                     .help("Delete this layout")
             }
             ZoneCanvas(layout: $layout, screen: screen, hideFree: hideFree)
-            Text("Right-click a zone to split or remove it, and drag the lines between zones to resize them. Add Zone puts a free zone on top: drag it to move it, drag its edges or corners to resize it (they stick to other zones and to ½ ⅓ ¼ of the screen), and right-click it to change its layer. The lines between split zones stay draggable on top; "Hide free zones" fades the free zones so you can right-click the zones under them. Sizes are in points on this display, and as a share of the screen.")
+            Text("Right-click a zone to split or remove it, and drag the lines between zones to resize them. Add Zone puts a free zone on top: drag it to move it, drag its edges or corners to resize it (they stick to other zones and to ½ ⅓ ¼ of the screen), and right-click it to change its layer. The lines between split zones stay draggable on top; Hide Free Zones fades the free zones so you can right-click the zones under them. Sizes are in points on this display, and as a share of the screen.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
