@@ -289,7 +289,6 @@ private struct ZoneCanvas: View {
                 .position(x: spot.x - r.minX, y: spot.y - r.minY)
             }
             .frame(width: max(r.width, 1), height: max(r.height, 1))
-            .position(x: r.midX, y: r.midY) // position, not offset: an offset view keeps its layout frame at the top-left, which took clicks meant for other zones
             .onHover { hovered = $0 ? i : (hovered == i ? nil : hovered) }
             .help("Zone \(i + 1): \(Int(real.width)) × \(Int(real.height)) pt (\(pw)% × \(ph)% of the screen)")
             .contextMenu {
@@ -299,6 +298,7 @@ private struct ZoneCanvas: View {
                 Button("Remove Zone") { layout.root.remove(zone: i) }
                     .disabled(layout.root.zoneCount < 2)
             }
+            .position(x: r.midX, y: r.midY) // last: modifiers after .position would cover the whole canvas
     }
 
     /// "630 × 1488": double-click either number to type a new size. The zones on the other side
@@ -374,7 +374,6 @@ private struct ZoneCanvas: View {
                 Image(systemName: "arrow.up.left.and.arrow.down.right").font(.system(size: 9)).foregroundStyle(.white.opacity(0.7)).padding(4)
             }
             .frame(width: max(r.width, 1), height: max(r.height, 1))
-            .position(x: r.midX, y: r.midY) // position, not offset: an offset view keeps its layout frame at the top-left, which took clicks meant for other zones
             .onHover { hovered = $0 ? i : (hovered == i ? nil : hovered) }
             .onContinuousHover(coordinateSpace: .named("canvas")) { phase in
                 guard floatDrag == nil else { return }
@@ -408,6 +407,7 @@ private struct ZoneCanvas: View {
                 Divider()
                 Button("Remove Zone") { layout.floating.remove(at: k) }
             }
+            .position(x: r.midX, y: r.midY) // last: modifiers after .position would cover the whole canvas
     }
 
     /// Where to put a zone's label: its centre, or else the first of a few other spots inside it
@@ -473,12 +473,12 @@ private struct ZoneCanvas: View {
                     .frame(width: d.axis == .columns ? 3 : min(28, hit.width), height: d.axis == .columns ? min(28, hit.height) : 3)
             )
             .frame(width: hit.width, height: hit.height)
-            .position(x: hit.midX, y: hit.midY)
             .onHover { inside in
                 if inside { (d.axis == .columns ? NSCursor.resizeLeftRight : NSCursor.resizeUpDown).push() } else { NSCursor.pop() }
             }
             .gesture(DragGesture(minimumDistance: 0, coordinateSpace: .named("canvas")).onChanged { v in
                 layout.root.move(d, to: d.axis == .columns ? v.location.x : v.location.y, spacing: spacing)
             })
+            .position(x: hit.midX, y: hit.midY) // last: modifiers after .position would cover the whole canvas
     }
 }
