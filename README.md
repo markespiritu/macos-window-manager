@@ -52,7 +52,17 @@ and opens Settings.
 
 ### Snapping
 
-![Settings › Snapping](docs/images/settings-snapping.png)
+**Snap to a window**: B snaps flush against A, and its top lines up with A's so the corners meet.
+
+<img src="docs/images/snap-to-window.gif" alt="Window B snaps flush against A and their tops line up" width="600">
+
+**Resize**: dragging B's bottom edge near A's bottom snaps them to the same height.
+
+<img src="docs/images/snap-resize.gif" alt="Resizing B's bottom edge snaps it level with A's bottom" width="600">
+
+**Screen corner**: A snaps into the top-left corner, against the menu bar and the screen edge.
+
+<img src="docs/images/snap-screen-corner.gif" alt="Window A snaps into the top-left corner of the screen" width="600">
 
 While you move or resize a window, its edges snap to anything within the snap distance (10 pt by
 default):
@@ -65,6 +75,8 @@ default):
 A snapped edge stays put until you pull it past the pull-off distance, so small hand movements
 don't knock it loose. When resizing, only the edge you drag snaps: drag the bottom of the shorter
 of two side-by-side windows near the other's bottom and they end up the same height.
+
+![Settings › Snapping](docs/images/settings-snapping.png)
 
 ### Zones
 
