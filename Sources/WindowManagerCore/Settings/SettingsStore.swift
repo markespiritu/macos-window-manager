@@ -20,9 +20,9 @@ public final class SettingsStore: ObservableObject {
     public init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         snappingEnabled = defaults.object(forKey: "snappingEnabled") as? Bool ?? true
-        snapDistance = defaults.object(forKey: "snapDistance") as? Double ?? 8
-        releaseDistance = defaults.object(forKey: "releaseDistance") as? Double ?? 24
-        snapOnlyWhenSlow = defaults.object(forKey: "snapOnlyWhenSlow") as? Bool ?? true
+        snapDistance = defaults.object(forKey: "snapDistance") as? Double ?? 10
+        releaseDistance = defaults.object(forKey: "releaseDistance") as? Double ?? 10
+        snapOnlyWhenSlow = defaults.object(forKey: "snapOnlyWhenSlow") as? Bool ?? false
         snapToScreenEdges = defaults.object(forKey: "snapToScreenEdges") as? Bool ?? true
         snapToWindows = defaults.object(forKey: "snapToWindows") as? Bool ?? true
     }

@@ -9,10 +9,10 @@ import AppKit
 ///   resize (and which edges), and starts a `SnapSession`.
 /// - From then on, the raw frame comes from the mouse (start frame + mouse travel), never from the
 ///   window, so snapping does not feed back into itself.
-/// - While an edge is attached, the tap swallows the drag events so the window server stops moving
-///   the window, and this places the window itself. That avoids the window being pulled to the raw
-///   position and pushed back to the snapped one on every event. When nothing is attached, events
-///   pass through and macOS drags the window as usual.
+/// - Once the move or resize is recognised, the tap swallows every further drag event and this
+///   controller places the window itself (mouse-derived frame, snapped) for the rest of the drag,
+///   the way a Linux window manager owns interactive moves. macOS and the snapper never take turns
+///   moving the window, so it cannot jump between the two.
 @MainActor
 public final class SnapController {
     public var engine: SnapEngine
@@ -20,7 +20,7 @@ public final class SnapController {
         didSet { isEnabled ? start() : stop() }
     }
     /// When true, a window moving faster than `catchSpeed` glides past edges instead of catching.
-    public var catchOnlyWhenSlow = true
+    public var catchOnlyWhenSlow = false
     /// Points per second, measured over the last few mouse events.
     public var catchSpeed: CGFloat = 900
     /// False until the event tap exists (it needs the Accessibility permission).
@@ -121,49 +121,44 @@ public final class SnapController {
 
     private func mouseDragged(to mouse: CGPoint, at time: TimeInterval) -> Bool {
         guard var d = drag else { return true }
-        defer { drag = d }
         d.record(mouse, at: time)
 
         if d.session == nil {
             // Wait for the window to start changing to know whether this is a move or a resize.
             guard let now = WindowList.frame(of: d.windowID),
-                  let op = SnapEngine.Operation.detect(from: d.startFrame, to: now) else { return true }
-            guard let window = service.window(withID: d.windowID, pid: d.pid) else { drag = nil; return true }
+                  let op = SnapEngine.Operation.detect(from: d.startFrame, to: now) else { drag = d; return true }
+            // Only take over windows we can actually place; otherwise leave the drag to macOS.
+            guard let window = service.window(withID: d.windowID, pid: d.pid),
+                  op == .move ? window.isMovable : window.isResizable else { drag = nil; return true }
             d.window = window
             let others = WindowList.onScreen().filter { $0.windowID != d.windowID }.map(\.frame)
-            let screens = DisplayService.displays.flatMap { [$0.visibleFrame, $0.frame] }
+            let screens = DisplayService.displays.map(\.visibleFrame)
             d.session = SnapSession(engine: engine, operation: op, others: others, screens: screens)
         }
-        guard var session = d.session, let window = d.window else { return true }
+        guard var session = d.session, let window = d.window else { drag = d; return true }
 
+        // From here on this controller is the only thing moving the window, like a Linux window
+        // manager: every drag event is swallowed and the window is placed at the mouse-derived frame,
+        // snapped. There is no hand-over between macOS and the snapper, so nothing jumps.
         let raw = Self.rawFrame(start: d.startFrame, operation: session.operation,
                                 dx: mouse.x - d.startMouse.x, dy: mouse.y - d.startMouse.y)
         let target = session.update(raw, canAttach: !catchOnlyWhenSlow || d.speed < catchSpeed)
         d.session = session
-
-        if session.isAttached {
-            if target != d.placed { place(window, at: target, operation: session.operation) }
-            d.placed = target
-            return false // hold the window ourselves
-        }
-        if d.placed != nil {
-            // Just detached: put the window back under the cursor, then let macOS carry on.
-            place(window, at: raw, operation: session.operation)
-            d.placed = nil
-        }
-        return true
+        if target != d.placed { place(window, at: target, operation: session.operation) }
+        d.placed = target
+        drag = d
+        return false
     }
 
-    /// A fast drag that stops right next to an edge never got a slow event to catch on, so give it
-    /// one last chance at release.
+    /// Places the window one last time for where the mouse was released (a fast drag that stops
+    /// next to an edge still snaps), then lets the release through so the app ends its drag.
     private func mouseUp(at mouse: CGPoint) {
         defer { drag = nil }
-        guard var d = drag, var session = d.session, let window = d.window, !session.isAttached else { return }
+        guard let d = drag, var session = d.session, let window = d.window else { return }
         let raw = Self.rawFrame(start: d.startFrame, operation: session.operation,
                                 dx: mouse.x - d.startMouse.x, dy: mouse.y - d.startMouse.y)
         let target = session.update(raw)
-        if target != raw { place(window, at: target, operation: session.operation) }
-        d.session = session
+        if target != d.placed { place(window, at: target, operation: session.operation) }
     }
 
     /// Where the window would be without snapping: the start frame plus the mouse travel, applied

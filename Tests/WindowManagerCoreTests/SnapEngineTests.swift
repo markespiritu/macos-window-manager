@@ -69,6 +69,21 @@ final class SnapEngineTests: XCTestCase {
         XCTAssertEqual(move(f, others: [neighbour]).origin, CGPoint(x: 1000, y: 900))
     }
 
+    func testDiagonalNeighbourDoesNotCatch() {
+        // Up-left of the neighbour, 5pt off its corner on both axes but overlapping on neither:
+        // nothing to sit flush against, so no snap (as in KWin).
+        let f = CGRect(x: 495, y: -105, width: 500, height: 300)
+        XCTAssertEqual(engine.snap(f, operation: .move, others: [neighbour], screens: []), f)
+    }
+
+    func testOnlyScreenUnderWindowCounts() {
+        // Window on the left display, top 5pt above the right display's usable top. The right
+        // display is not under the window, so its edge does not count.
+        let left = CGRect(x: 0, y: 0, width: 1000, height: 800), right = CGRect(x: 1000, y: 30, width: 1000, height: 800)
+        let f = CGRect(x: 300, y: 25, width: 750, height: 300)
+        XCTAssertEqual(engine.snap(f, operation: .move, others: [], screens: [left, right]), f)
+    }
+
     func testNearestTargetWins() {
         let other = CGRect(x: 1007, y: 200, width: 300, height: 700)
         let f = CGRect(x: 495, y: 400, width: 500, height: 300)
@@ -145,8 +160,9 @@ final class SettingsTests: XCTestCase {
         let d = UserDefaults(suiteName: "WindowManagerTests.\(UUID().uuidString)")!
         let s = SettingsStore(defaults: d)
         XCTAssertTrue(s.snappingEnabled)
-        XCTAssertEqual(s.snapDistance, 8)
-        XCTAssertEqual(s.releaseDistance, 24)
+        XCTAssertEqual(s.snapDistance, 10)
+        XCTAssertEqual(s.releaseDistance, 10)
+        XCTAssertFalse(s.snapOnlyWhenSlow)
         s.snapDistance = 25
         s.snapToWindows = false
         let r = SettingsStore(defaults: d)

@@ -27,7 +27,7 @@ enum DebugCommands {
             }
             let engine = SnapEngine(distance: rest.dropFirst().first.flatMap(Double.init).map { CGFloat($0) } ?? 15)
             let others = WindowList.onScreen().filter { $0.windowID != wid }.map(\.frame)
-            let screens = DisplayService.displays.flatMap { [$0.visibleFrame, $0.frame] }
+            let screens = DisplayService.displays.map(\.visibleFrame)
             let snapped = engine.snap(entry.frame, operation: .move, others: others, screens: screens)
             print("from", entry.frame, "to", snapped)
             AX.set(window.element, kAXPositionAttribute, point: snapped.origin)

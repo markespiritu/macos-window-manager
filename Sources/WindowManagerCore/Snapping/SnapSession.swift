@@ -34,8 +34,11 @@ public struct SnapSession {
         guard engine.distance > 0 else { return raw }
         let moving = engine.moving(operation)
         var r = raw
-        for axis in SnapEngine.Axis.allCases {
-            if let a = attachments[axis] {
+        // x, then y, then x again: snapping flush on y can enable corner alignment on x (stacked
+        // windows lining up their sides), which the first x pass could not see yet.
+        for (pass, axis) in [SnapEngine.Axis.x, .y, .x].enumerated() {
+            if pass == 2 && attachments[.x] != nil { continue }
+            if let a = attachments[axis], pass < 2 {
                 let d = a.target - engine.edge(raw, axis, low: a.low)
                 if abs(d) <= engine.releaseDistance {
                     r = engine.apply(d, axis: axis, to: r, operation: operation, moving: moving)

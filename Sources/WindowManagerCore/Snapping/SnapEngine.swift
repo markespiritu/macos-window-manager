@@ -14,12 +14,13 @@ public struct Edges: OptionSet, Hashable, Sendable {
 /// Linux-style magnetic snapping, as pure math. Given the frame the user is dragging a window to,
 /// returns the frame it should snap to. All rects are in AX space (top-left origin, y down).
 ///
-/// A moving edge snaps to the nearest target within `distance`, independently on each axis:
-/// - screen edges: the inside edges of the visible area (and the full display frame);
-/// - neighbouring windows, edge to opposite edge, so windows sit flush side by side or stacked;
-/// - neighbouring windows, edge to same edge, when the windows touch on the other axis, so tops
-///   of side-by-side windows line up (and lefts of stacked windows). Together with the previous
-///   rule this makes corners meet.
+/// The rules follow KWin's (behaviour only; no KWin code is used, it is GPL). A moving edge snaps
+/// to the nearest target within `distance`, independently on each axis:
+/// - screen edges: the edges of the usable area of the display under the window's centre;
+/// - neighbouring windows, edge to opposite edge, only when the two windows overlap on the other
+///   axis, so windows sit flush side by side or stacked;
+/// - "corner" snapping: once flush against a window on one axis, the same edges line up on the
+///   other axis, so tops of side-by-side windows (and sides of stacked windows) align.
 /// When moving, both edges of an axis are candidates and the whole frame shifts. When resizing,
 /// only the dragged edges are candidates and only they move, so a window's bottom snaps level with
 /// its neighbour's bottom.
@@ -38,7 +39,7 @@ public struct SnapEngine: Equatable, Sendable {
     public var snapToScreen: Bool
     public var snapToWindows: Bool
 
-    public init(distance: CGFloat = 8, releaseDistance: CGFloat? = nil, snapToScreen: Bool = true,
+    public init(distance: CGFloat = 10, releaseDistance: CGFloat? = nil, snapToScreen: Bool = true,
                 snapToWindows: Bool = true) {
         self.distance = distance
         self.releaseDistance = max(releaseDistance ?? distance, distance)
@@ -49,7 +50,7 @@ public struct SnapEngine: Equatable, Sendable {
     /// - Parameters:
     ///   - frame: where the window is being dragged to.
     ///   - others: frames of the other visible windows.
-    ///   - screens: visible frames (and optionally full frames) of the displays.
+    ///   - screens: usable (visible) frames of the displays.
     public func snap(_ frame: CGRect, operation: Operation, others: [CGRect], screens: [CGRect]) -> CGRect {
         var session = SnapSession(engine: self, operation: operation, others: others, screens: screens)
         return session.update(frame)
@@ -78,16 +79,22 @@ public struct SnapEngine: Equatable, Sendable {
         axis == .x ? r.minY...r.maxY : r.minX...r.maxX
     }
 
-    /// True when two ranges overlap or are within `distance` of each other.
-    private func near(_ a: ClosedRange<CGFloat>, _ b: ClosedRange<CGFloat>) -> Bool {
-        a.lowerBound <= b.upperBound + distance && b.lowerBound <= a.upperBound + distance
+    /// True when two ranges overlap (touching counts).
+    private func overlaps(_ a: ClosedRange<CGFloat>, _ b: ClosedRange<CGFloat>) -> Bool {
+        a.lowerBound <= b.upperBound && b.lowerBound <= a.upperBound
     }
 
-    /// True when `a` and `b` touch along `axis` (an edge of one within `distance` of the opposite
-    /// edge of the other), e.g. side by side for `.x`.
-    private func touching(_ a: CGRect, _ b: CGRect, along axis: Axis) -> Bool {
-        abs(edge(a, axis, low: true) - edge(b, axis, low: false)) <= distance
-            || abs(edge(a, axis, low: false) - edge(b, axis, low: true)) <= distance
+    /// True when `a` and `b` sit exactly flush along `axis` (an edge of one on the opposite edge of
+    /// the other), e.g. side by side for `.x`.
+    private func flush(_ a: CGRect, _ b: CGRect, along axis: Axis) -> Bool {
+        abs(edge(a, axis, low: true) - edge(b, axis, low: false)) < 0.5
+            || abs(edge(a, axis, low: false) - edge(b, axis, low: true)) < 0.5
+    }
+
+    /// The usable area of the display under the window's centre (else the one it overlaps most).
+    private func screen(for f: CGRect, in screens: [CGRect]) -> CGRect? {
+        screens.first { $0.contains(f.center) }
+            ?? screens.max { $0.intersectionArea(with: f) < $1.intersectionArea(with: f) }
     }
 
     func moving(_ op: Operation) -> Edges {
@@ -107,18 +114,18 @@ public struct SnapEngine: Equatable, Sendable {
         var candidates: [(low: Bool, target: CGFloat)] = []
         let other: Axis = axis == .x ? .y : .x
 
-        for s in screens where near(span(f, across: axis), span(s, across: axis)) {
+        if let s = screen(for: f, in: screens) {
             candidates.append((true, edge(s, axis, low: true)))
             candidates.append((false, edge(s, axis, low: false)))
         }
         for o in others {
             // Opposite edges: sit flush next to the other window when they overlap across the axis.
-            if near(span(f, across: axis), span(o, across: axis)) {
+            if overlaps(span(f, across: axis), span(o, across: axis)) {
                 candidates.append((true, edge(o, axis, low: false)))
                 candidates.append((false, edge(o, axis, low: true)))
             }
-            // Same edges: line up with a window this one touches on the other axis.
-            if touching(f, o, along: other) {
+            // Corner snapping: line up with a window this one is already flush against.
+            if flush(f, o, along: other) {
                 candidates.append((true, edge(o, axis, low: true)))
                 candidates.append((false, edge(o, axis, low: false)))
             }
