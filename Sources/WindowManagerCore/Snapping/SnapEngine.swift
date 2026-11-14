@@ -170,4 +170,31 @@ public extension SnapEngine.Operation {
         if abs(start.maxY - now.maxY) > tolerance { e.insert(.bottom) }
         return e.isEmpty ? nil : .resize(e)
     }
+
+    /// How close to a window corner, along each edge, a grab counts as a corner grab. macOS's own
+    /// corner resize area reaches about this far from the corner.
+    static let cornerReach: CGFloat = 16
+
+    /// Like `detect(from:to:)`, but also uses where the window was grabbed. The first frame change
+    /// of a corner drag often moves only one edge (the mouse went a little sideways before it went
+    /// down), which would lock the whole drag onto that one edge. A resize grabbed near a corner
+    /// gets that corner's other edge too, so both dimensions follow the mouse.
+    static func detect(from start: CGRect, to now: CGRect, grabbedAt mouse: CGPoint,
+                       tolerance: CGFloat = 0.5) -> Self? {
+        guard case .resize(var e)? = detect(from: start, to: now, tolerance: tolerance) else {
+            return detect(from: start, to: now, tolerance: tolerance)
+        }
+        let reach = cornerReach
+        let nearLeft = abs(mouse.x - start.minX) <= reach, nearRight = abs(mouse.x - start.maxX) <= reach
+        let nearTop = abs(mouse.y - start.minY) <= reach, nearBottom = abs(mouse.y - start.maxY) <= reach
+        let hasX = !e.isDisjoint(with: [.left, .right]), hasY = !e.isDisjoint(with: [.top, .bottom])
+        if hasX && !hasY {
+            let xNear = e.contains(.left) ? nearLeft : nearRight
+            if xNear && nearTop != nearBottom { e.insert(nearTop ? .top : .bottom) }
+        } else if hasY && !hasX {
+            let yNear = e.contains(.top) ? nearTop : nearBottom
+            if yNear && nearLeft != nearRight { e.insert(nearLeft ? .left : .right) }
+        }
+        return .resize(e)
+    }
 }

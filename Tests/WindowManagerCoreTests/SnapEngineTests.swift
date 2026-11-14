@@ -133,6 +133,42 @@ final class SnapEngineTests: XCTestCase {
         XCTAssertEqual(SnapEngine.Operation.detect(from: a, to: CGRect(x: 100, y: 100, width: 400, height: 350)), .resize(.bottom))
         XCTAssertEqual(SnapEngine.Operation.detect(from: a, to: CGRect(x: 80, y: 90, width: 420, height: 310)), .resize([.left, .top]))
     }
+
+    /// A corner drag whose first frame change only moved one edge still resizes both.
+    func testDetectCornerGrabAddsOtherEdge() {
+        let a = CGRect(x: 100, y: 100, width: 400, height: 300)
+        let wider = CGRect(x: 100, y: 100, width: 405, height: 300)
+        let taller = CGRect(x: 100, y: 100, width: 400, height: 305)
+        // Bottom-right corner, first change only on the right edge (and the other way round).
+        XCTAssertEqual(SnapEngine.Operation.detect(from: a, to: wider, grabbedAt: CGPoint(x: 498, y: 397)), .resize([.right, .bottom]))
+        XCTAssertEqual(SnapEngine.Operation.detect(from: a, to: taller, grabbedAt: CGPoint(x: 502, y: 399)), .resize([.right, .bottom]))
+        // Top-left corner.
+        let leftOnly = CGRect(x: 95, y: 100, width: 405, height: 300)
+        XCTAssertEqual(SnapEngine.Operation.detect(from: a, to: leftOnly, grabbedAt: CGPoint(x: 101, y: 103)), .resize([.left, .top]))
+        // Top-right corner, first change only on the top edge.
+        let topOnly = CGRect(x: 100, y: 95, width: 400, height: 305)
+        XCTAssertEqual(SnapEngine.Operation.detect(from: a, to: topOnly, grabbedAt: CGPoint(x: 497, y: 101)), .resize([.right, .top]))
+    }
+
+    /// A plain edge grab, away from the corners, stays a one-edge resize; so do moves.
+    func testDetectEdgeGrabStaysSingleEdge() {
+        let a = CGRect(x: 100, y: 100, width: 400, height: 300)
+        let wider = CGRect(x: 100, y: 100, width: 405, height: 300)
+        XCTAssertEqual(SnapEngine.Operation.detect(from: a, to: wider, grabbedAt: CGPoint(x: 500, y: 250)), .resize(.right))
+        let taller = CGRect(x: 100, y: 100, width: 400, height: 305)
+        XCTAssertEqual(SnapEngine.Operation.detect(from: a, to: taller, grabbedAt: CGPoint(x: 300, y: 400)), .resize(.bottom))
+        XCTAssertEqual(SnapEngine.Operation.detect(from: a, to: a.offsetBy(dx: 5, dy: 3), grabbedAt: CGPoint(x: 490, y: 105)), .move)
+        XCTAssertNil(SnapEngine.Operation.detect(from: a, to: a, grabbedAt: CGPoint(x: 500, y: 400)))
+    }
+
+    /// Both dragged edges of a corner snap, each to its own target.
+    func testCornerResizeSnapsBothEdges() {
+        let engine = SnapEngine(distance: 15)
+        let s = CGRect(x: 0, y: 0, width: 1000, height: 800)
+        let raw = CGRect(x: 100, y: 100, width: 893, height: 691) // right 993, bottom 791
+        XCTAssertEqual(engine.snap(raw, operation: .resize([.right, .bottom]), others: [], screens: [s]),
+                       CGRect(x: 100, y: 100, width: 900, height: 700))
+    }
 }
 
 final class CoordinateTests: XCTestCase {
