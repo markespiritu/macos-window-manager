@@ -10,7 +10,14 @@ final class MenuBarController: NSObject, NSMenuDelegate {
     init(app: AppDelegate) {
         self.app = app
         super.init()
-        item.button?.image = NSImage(systemSymbolName: "rectangle.split.2x1", accessibilityDescription: "Window Manager")
+        // A larger point size and medium weight: at the default size this wide symbol came out
+        // shorter than the other menu bar icons, with thin, soft-looking lines.
+        let config = NSImage.SymbolConfiguration(pointSize: 16, weight: .medium)
+        let image = NSImage(systemSymbolName: "rectangle.split.2x1", accessibilityDescription: "Window Manager")?
+            .withSymbolConfiguration(config)
+        image?.isTemplate = true
+        item.button?.image = image
+        item.button?.imageScaling = .scaleNone // drawn at its own size, never resampled
         let menu = NSMenu()
         menu.delegate = self
         item.menu = menu
