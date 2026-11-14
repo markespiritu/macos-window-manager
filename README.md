@@ -1,53 +1,125 @@
 # macOS Window Manager
 
-A menu bar window manager for macOS 14+, written in Swift (SwiftUI + AppKit). No third-party
-dependencies.
+A menu bar window manager for macOS 14+, written in Swift (SwiftUI + AppKit) with no third-party
+dependencies. Windows snap to screen edges and to each other as you move and resize them, the way
+KWin does, and you can drop them into zone layouts you design yourself, like FancyZones.
+
+![Holding Option while dragging a window shows the display's zones; the highlighted one is where it lands](docs/images/zone-overlay.png)
+
+## Features
+
+- **Edge and window snapping** while you move *and* resize, with a configurable snap distance and
+  pull-off distance.
+- **Zones**: hold ⌥ Option while dragging a window to show the display's zones and drop it into
+  one. Span several zones, overlap zones on layers, and get the window's old size back when you
+  drag it out.
+- **Layout editor** in Settings › Zones, with templates, split and free zones, editable sizes,
+  rulers and keyboard nudging.
+- **Per-display layouts**, picked from the menu bar.
+- **⌃⌥⌘← / →** moves the focused window to the previous or next zone, and on to the next display.
+
+## Requirements
+
+- macOS 14 Sonoma or later
+- Xcode (for `xcodebuild`) to build it
+- Accessibility permission, which the app asks for on first launch
 
 ## Build and run
 
 ```bash
-scripts/build-app.sh --test      # unit tests (xcodebuild test)
 scripts/build-app.sh --run       # build "build/Window Manager.app" and launch it
 scripts/build-app.sh --install   # build, copy to /Applications, launch
+scripts/build-app.sh --test      # unit tests (xcodebuild test)
 ```
 
-The app is signed with a stable local identity when one is in the keychain ("Automator Local
-Signing", then "Apple Development"), so the Accessibility grant survives rebuilds. Set
-`SIGN_IDENTITY` to override. On first launch it asks for Accessibility access and closes the
-prompt by itself once granted. Opening the app again while it runs shows Settings, which helps
-when the menu bar icon is hidden behind the notch.
+On first launch the app asks for Accessibility access and closes the prompt by itself once it is
+granted. The app is signed with a stable local identity when one is in the keychain ("Automator
+Local Signing", then "Apple Development"), so the grant survives rebuilds; set `SIGN_IDENTITY` to
+override. Opening the app again while it runs shows Settings, which helps when the menu bar icon
+is hidden behind the notch.
 
 The executable is `WindowManagerApp`, not `WindowManager`: macOS already runs a system process
 called `WindowManager` (Stage Manager), so never `pkill -x WindowManager`.
 
+## Using it
+
+### Menu bar
+
+<img src="docs/images/menu-bar.png" alt="The menu bar menu" width="350">
+
+The menu bar menu turns snapping on and off, picks the zone layout for each connected display,
+and opens Settings.
+
 ### Snapping
 
-While you move or resize a window, its edges snap to targets within the snap distance (15 pt by
-default, Settings › Snapping):
+![Settings › Snapping](docs/images/settings-snapping.png)
+
+While you move or resize a window, its edges snap to anything within the snap distance (10 pt by
+default):
 
 - the edges of the screen's usable area;
 - the facing edge of a neighbouring window, so windows sit flush side by side or stacked;
 - the same edge of a window it sits next to, so the tops and bottoms of side-by-side windows (and
   the sides of stacked windows) line up and corners meet.
 
-When resizing, only the edge you drag snaps, so dragging the bottom of the shorter of two
-side-by-side windows close to the other's bottom gives them the same height. Snapping can be
-turned off from the menu bar.
+A snapped edge stays put until you pull it past the pull-off distance, so small hand movements
+don't knock it loose. When resizing, only the edge you drag snaps: drag the bottom of the shorter
+of two side-by-side windows near the other's bottom and they end up the same height.
 
-### Zones (FancyZones-style layouts)
+### Zones
 
-Each display has a zone layout. Hold Option (configurable: Shift, Command or Control) while moving a window to show its zones, and release
-over one to drop the window into it (Settings › Zones can show them on every drag instead). Hover
-the border between zones to span both; hold Control as well (Shift when Control is the zone key) to span every zone between where
-Control went down and the cursor. A window dragged out of a zone gets its previous size back.
+![Settings › Zones](docs/images/zone-editor.png)
 
-- The menu bar menu picks the zone layout for each display.
-- ⌃⌥⌘← / → moves the focused window to the previous / next zone (on to the next display).
+Each display has its own zone layout. Hold ⌥ Option while moving a window to show the zones, and
+release over one to drop the window into it. Settings › Zones can change the key to Shift, Command
+or Control, or show the zones on every drag (holding the key then hides them).
 
-Layouts are trees of splits (`ZoneNode`), so templates (Columns, Rows, Grid, Priority Grid) and
-custom layouts edit the same way in Settings › Zones: click a zone to split it, ⇧-click to split
-it the other way, drag the lines between zones, right-click to remove one. Layouts are assigned
-per display UUID in `ZoneStore`.
+- **Span zones**: hover the border between two zones to fill both. Hold ⌃ Control as well (⇧ Shift
+  when Control is the zone key) to span every zone between where you pressed it and the cursor.
+- **Overlapping zones**: free zones sit on layers above the split zones. Where zones overlap, the
+  top-most one (highest number) wins by default; you can switch to the smallest zone or the one
+  whose centre is closest.
+- **Drag out**: a window dragged out of a zone gets its previous size back (can be turned off).
+- **Keyboard**: ⌃⌥⌘← / → moves the focused window to the previous / next zone, continuing onto the
+  next display.
+
+### Layout editor
+
+Settings › Zones lists the layouts for the chosen display. The templates (Columns, Rows, Grid,
+Priority Grid) and your own layouts all edit the same way:
+
+- **Right-click** a zone to split it side by side or top and bottom, or to remove it.
+- **Drag the lines** between split zones to resize them.
+- **Add Zone** puts a free zone on top. Drag it to move it, and drag its edges or corners to resize
+  it; they stick to other zones and to ½, ⅓ and ¼ of the screen. Right-click it to bring it
+  forward or send it back. **Hide free zones** fades them so you can reach the zones underneath.
+- Each zone shows its size in points and as a share of the screen, and rulers show the distances
+  around the zone you drag or point at.
+  **Double-click a size** to type an exact one.
+- **Click** a zone to select it, then press **Delete** to remove it, **arrow keys** to move a free
+  zone (⇧ for 10 pt steps), **⌥ arrows** to resize it, or arrows to resize a split zone.
+- **New Layout** starts from a number of zones or duplicates the current layout, and
+  **Reset to Defaults…** deletes your custom layouts.
+
+### General
+
+![Settings › General](docs/images/settings-general.png)
+
+Launch at login, and the state of the Accessibility permission and the private window server APIs
+the app uses where available.
+
+## Roadmap
+
+| Phase | Status |
+|---|---|
+| 1. Foundation: menu bar app, onboarding, window control, settings | Done |
+| 2. Snapping | Done |
+| 3. Zones: predefined layouts and editor | Done |
+| 4. Multiple displays and Spaces | Planned |
+| 5. Save and restore window positions | Planned |
+| 6. Auto-tiling | Planned |
+
+## Development
 
 ### Debug commands
 
@@ -59,10 +131,10 @@ B="build/Window Manager.app/Contents/MacOS/WindowManagerApp"
 "$B" --list-windows [--all]           # windows on the current Space
 "$B" --list-displays                  # displays, visible frames in AX coordinates
 "$B" --list-spaces                    # Spaces per display (SkyLight)
-"$B" --snap 1234 [distance]            # snap a window by number as if it had just been moved
+"$B" --snap 1234 [distance]           # snap a window by number as if it had just been moved
 ```
 
-## Layout
+### Source layout
 
 ```
 Sources/WindowManagerCore/      no UI; everything testable and reused by later phases
@@ -72,7 +144,7 @@ Sources/WindowManagerCore/      no UI; everything testable and reused by later p
   Zones/      ZoneLayout (split tree + templates), ZonePicker, ZoneStore, ZoneOverlay, ZoneController
   Displays/   Display (frames already in AX space), DisplayService
   Private/    SkyLight via dlsym (focus, Spaces) and _AXUIElementGetWindow
-  Hotkeys/    KeyCombo, HotkeyCenter (Carbon RegisterEventHotKey; unused until layouts get shortcuts)
+  Hotkeys/    KeyCombo, HotkeyCenter (Carbon RegisterEventHotKey)
   Settings/   SettingsStore (UserDefaults, observable)
   Permissions/AccessibilityPermission (polls until granted)
 Sources/WindowManagerApp/       menu bar app: status item, onboarding, settings, debug CLI
@@ -86,14 +158,13 @@ Conventions:
 - **Window identity is the CG window number** (`Window.windowID`), which is stable across Spaces.
 - **Private APIs are optional.** SkyLight symbols are resolved at runtime; if one disappears the
   code falls back to public API rather than crashing.
+- **Layouts are split trees** (`ZoneNode`) plus a list of free zones, assigned per display UUID in
+  `ZoneStore`.
 
-## Roadmap
+How later phases build on this:
 
 | Phase | Builds on |
 |---|---|
-| 1. Foundation | menu bar app, onboarding, window control, hotkey plumbing, settings shell |
-| 2. Snapping | `SnapEngine` + `SnapController`; Snapping settings tab |
-| 3. Zones: predefined layouts + editor (this) | `ZoneLayout`, `ZoneController` (driven by `SnapController`'s drag), Zones tab |
 | 4. Multiple displays and Spaces | `DisplayService`, `SkyLight.managedDisplaySpaces` / `spaces(for:)` |
 | 5. Save and restore | `Window.windowID` + app bundle id as keys; persisted beside `SettingsStore` |
 | 6. Auto-tiling | `WindowControlling`; window created/destroyed observers |
