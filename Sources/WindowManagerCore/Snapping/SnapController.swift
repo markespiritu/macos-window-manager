@@ -55,6 +55,10 @@ public final class SnapController {
         var snaps = false
         /// The window's size changes on the next placement (restoring its pre-zone size).
         var resize = false
+        /// A zoned window stays in its zone until the mouse has moved further than the screen-edge
+        /// snap distance, so a small nudge of the title bar does not drag it out (and restore its
+        /// old size). True while it is held there.
+        var pinned = false
         var mouse: CGPoint
     }
 
@@ -166,13 +170,11 @@ public final class SnapController {
             d.snaps = snapping
             if op == .move {
                 zones?.beginDrag()
-                // A window dragged out of a zone gets its old size back, keeping the point under
-                // the cursor at the same relative spot across the title bar. This controller then
-                // moves the window for the rest of the drag even with snapping off, since macOS's
-                // own drag would not follow the new size.
-                if let size = zones?.takeRestoreSize(d.windowID, pid: d.pid, current: d.startFrame) {
-                    d.startFrame = Self.restoredFrame(d.startFrame, size: size, mouse: d.startMouse)
-                    d.resize = true
+                // A zoned window is held in its zone until the drag passes the snap distance; this
+                // controller moves it for the whole drag, even with snapping off, to hold it and
+                // then to give it its old size (macOS's own drag would follow neither).
+                if zones?.isZoned(d.windowID, pid: d.pid, current: d.startFrame) == true {
+                    d.pinned = true
                     d.owns = true
                 }
             }
@@ -188,10 +190,22 @@ public final class SnapController {
         // From here on this controller is the only thing moving the window, like a Linux window
         // manager: every drag event is swallowed and the window is placed at the mouse-derived frame,
         // snapped. There is no hand-over between macOS and the snapper, so nothing jumps.
-        let raw = Self.rawFrame(start: d.startFrame, operation: session.operation,
-                                dx: mouse.x - d.startMouse.x, dy: mouse.y - d.startMouse.y)
         let inZones = session.operation == .move && zones?.update(mouse: mouse, flags: flags) != nil
         guard d.owns else { drag = d; return true }
+        if d.pinned {
+            if inZones || bypassHeld(flags)
+                || Self.detaches(dx: mouse.x - d.startMouse.x, dy: mouse.y - d.startMouse.y, distance: engine.screenDistance) {
+                detach(&d)
+            } else {
+                // Still in its zone: put back whatever macOS moved before this controller took over.
+                if d.placed != d.startFrame { place(window, at: d.startFrame, operation: .move) }
+                d.placed = d.startFrame
+                drag = d
+                return false
+            }
+        }
+        let raw = Self.rawFrame(start: d.startFrame, operation: session.operation,
+                                dx: mouse.x - d.startMouse.x, dy: mouse.y - d.startMouse.y)
         // Over zones, or while the bypass key is held, the window just follows the mouse; it goes
         // into the zone on release.
         let target = inZones || !snaps(d, flags) ? raw : session.update(raw)
@@ -227,6 +241,12 @@ public final class SnapController {
         }
         guard d.owns else { return }
         defer { placer.endDrag() }
+        if d.pinned {
+            // Released before it left its zone: it stays there, and stays zoned.
+            if d.placed != d.startFrame { place(window, at: d.startFrame, operation: .move) }
+            holdAfterRelease(window, at: d.startFrame, operation: .move)
+            return
+        }
         let raw = Self.rawFrame(start: d.startFrame, operation: session.operation,
                                 dx: mouse.x - d.startMouse.x, dy: mouse.y - d.startMouse.y)
         let target = snaps(d, flags) ? session.update(raw) : raw
@@ -259,6 +279,26 @@ public final class SnapController {
         }
     }
 
+    /// The window leaves its zone: it is forgotten, and gets its old size back (if that setting is
+    /// on), keeping the point under the cursor at the same relative spot across the title bar.
+    private func detach(_ d: inout DragState) {
+        d.pinned = false
+        if let size = zones?.takeRestoreSize(d.windowID, pid: d.pid, current: d.startFrame) {
+            d.startFrame = Self.restoredFrame(d.startFrame, size: size, mouse: d.startMouse)
+            d.resize = true
+        }
+    }
+
+    /// A drag this far from where it started takes a zoned window out of its zone: further than
+    /// the snap distance on either axis, the same distance a window lets go of a screen edge at.
+    nonisolated static func detaches(dx: CGFloat, dy: CGFloat, distance: CGFloat) -> Bool {
+        max(abs(dx), abs(dy)) > distance
+    }
+
+    private func bypassHeld(_ flags: CGEventFlags) -> Bool {
+        bypassKey.map { flags.contains($0.flag) } ?? false
+    }
+
     /// Snap edges on this event: snapping is on for the drag and the bypass key is not held.
     private func snaps(_ d: DragState, _ flags: CGEventFlags) -> Bool {
         guard d.snaps else { return false }
@@ -271,7 +311,10 @@ public final class SnapController {
     private func modifiersChanged(_ flags: CGEventFlags) {
         guard var d = drag, var session = d.session, let window = d.window else { return }
         let inZones = session.operation == .move && zones?.update(mouse: d.mouse, flags: flags) != nil
-        guard d.owns, !inZones, !d.resize else { return }
+        // Showing zones or holding the bypass key lets a held window out of its zone; it follows
+        // the mouse (at its old size) from the next move.
+        if d.pinned, inZones || bypassHeld(flags) { detach(&d); drag = d; return }
+        guard d.owns, !d.pinned, !inZones, !d.resize else { return }
         let raw = Self.rawFrame(start: d.startFrame, operation: session.operation,
                                 dx: d.mouse.x - d.startMouse.x, dy: d.mouse.y - d.startMouse.y)
         let target = snaps(d, flags) ? session.update(raw) : raw

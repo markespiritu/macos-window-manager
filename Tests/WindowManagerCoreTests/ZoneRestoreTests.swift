@@ -75,4 +75,23 @@ final class ZoneRestoreTests: XCTestCase {
         let narrow = SnapController.restoredFrame(zone, size: CGSize(width: 200, height: 200), mouse: CGPoint(x: 590, y: 35))
         XCTAssertTrue(narrow.minX <= 590 && narrow.maxX >= 590)
     }
+
+    func testZonedWindowStaysZonedUntilDraggedOut() {
+        let c = controller(defaults())
+        c.didZone(7, pid: 1, original: CGSize(width: 900, height: 500), placed: zone)
+        XCTAssertTrue(c.isZoned(7, pid: 1, current: zone))
+        XCTAssertTrue(c.isZoned(7, pid: 1, current: zone), "checking forgets nothing")
+        XCTAssertFalse(c.isZoned(7, pid: 1, current: CGRect(x: 0, y: 25, width: 1200, height: 800)), "resized since")
+        XCTAssertFalse(c.isZoned(8, pid: 1, current: zone))
+        _ = c.takeRestoreSize(7, pid: 1, current: zone)
+        XCTAssertFalse(c.isZoned(7, pid: 1, current: zone), "forgotten once dragged out")
+    }
+
+    func testDetachesOnlyPastSnapDistance() {
+        XCTAssertFalse(SnapController.detaches(dx: 3, dy: -2, distance: 10))
+        XCTAssertFalse(SnapController.detaches(dx: 10, dy: 10, distance: 10), "at the distance it still holds")
+        XCTAssertTrue(SnapController.detaches(dx: 0, dy: 11, distance: 10))
+        XCTAssertTrue(SnapController.detaches(dx: -11, dy: 0, distance: 10))
+        XCTAssertTrue(SnapController.detaches(dx: 1, dy: 0, distance: 0), "distance 0: no hold")
+    }
 }

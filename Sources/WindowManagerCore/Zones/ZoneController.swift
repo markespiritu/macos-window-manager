@@ -118,6 +118,13 @@ public final class ZoneController {
         zoned.remove(wid)
     }
 
+    /// The window is in the zone this controller gave it (still that size), so a drag holds it there
+    /// until the mouse has moved past the snap distance. Unlike `takeRestoreSize`, forgets nothing.
+    public func isZoned(_ wid: CGWindowID, pid: pid_t, current: CGRect) -> Bool {
+        guard let z = zoned.get(wid, pid: pid) else { return false }
+        return Self.sameSize(z.placed, current)
+    }
+
     /// The size a zoned window should get back when a drag takes it out of its zone, if the window
     /// is still the size its zone gave it (not maximised or resized since). Forgets the window
     /// either way.

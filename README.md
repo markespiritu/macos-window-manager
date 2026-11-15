@@ -97,7 +97,7 @@ or Control, or show the zones on every drag (holding the key then hides them).
 - **Overlapping zones**: free zones sit on layers above the split zones. Where zones overlap, the
   top-most one (highest number) wins by default; you can switch to the smallest zone or the one
   whose centre is closest.
-- **Drag out**: a window dragged out of a zone gets its previous size back (can be turned off).
+- **Drag out**: a zoned window stays in its zone until the drag goes further than the screen-edge snap distance (Settings > Snapping), so a small nudge leaves it alone; once out it gets its previous size back (can be turned off). Showing zones or holding the bypass key lets it out at once.
 - **Keyboard**: ⌃⌥⌘← / → moves the focused window to the previous / next zone, continuing onto the
   next display.
 
