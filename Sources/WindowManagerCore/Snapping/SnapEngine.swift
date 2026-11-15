@@ -14,13 +14,19 @@ public struct Edges: OptionSet, Hashable, Sendable {
 /// Linux-style magnetic snapping, as pure math. Given the frame the user is dragging a window to,
 /// returns the frame it should snap to. All rects are in AX space (top-left origin, y down).
 ///
-/// The rules follow KWin's (behaviour only; no KWin code is used, it is GPL). A moving edge snaps
-/// to the nearest target within `distance`, independently on each axis:
-/// - screen edges: the edges of the usable area of the display under the window's centre;
+/// The rules follow KWin's (behaviour only; no KWin code is used, it is GPL). Like KWin there are
+/// three zones, each with its own distance. A moving edge snaps to the nearest target within its
+/// zone's distance, independently on each axis:
+/// - screen edges (`screenDistance`): the edges of the usable area of the display under the
+///   window's centre;
 /// - neighbouring windows, edge to opposite edge, only when the two windows overlap on the other
 ///   axis, so windows sit flush side by side or stacked;
 /// - "corner" snapping: once flush against a window on one axis, the same edges line up on the
-///   other axis, so tops of side-by-side windows (and sides of stacked windows) align.
+///   other axis, so tops of side-by-side windows (and sides of stacked windows) align
+///   (`windowDistance` for both window rules);
+/// - screen centre (`centerDistance`, moves only, off by default): the window centres on the
+///   display when its centre comes within the distance on both axes, or centres along a screen
+///   edge it is already snapped to (top/bottom edge: horizontally; left/right edge: vertically).
 /// When moving, both edges of an axis are candidates and the whole frame shifts. When resizing,
 /// only the dragged edges are candidates and only they move, so a window's bottom snaps level with
 /// its neighbour's bottom.
@@ -31,20 +37,39 @@ public struct SnapEngine: Equatable, Sendable {
         case resize(Edges)
     }
 
-    public var distance: CGFloat
-    /// How far an attached edge must be pulled from its target before it lets go. Larger than
-    /// `distance`, so snapping does not flicker on and off at the boundary and pulling a window
-    /// away is a deliberate move. Never less than `distance`.
-    public var releaseDistance: CGFloat
+    /// Catch distance for screen edges.
+    public var screenDistance: CGFloat
+    /// Catch distance for other windows' edges.
+    public var windowDistance: CGFloat
+    /// Catch distance for the screen centre.
+    public var centerDistance: CGFloat
     public var snapToScreen: Bool
     public var snapToWindows: Bool
+    public var snapToCenter: Bool
 
-    public init(distance: CGFloat = 10, releaseDistance: CGFloat? = nil, snapToScreen: Bool = true,
-                snapToWindows: Bool = true) {
-        self.distance = distance
-        self.releaseDistance = max(releaseDistance ?? distance, distance)
+    public init(screenDistance: CGFloat = 10, windowDistance: CGFloat = 10, centerDistance: CGFloat = 10,
+                snapToScreen: Bool = true, snapToWindows: Bool = true,
+                snapToCenter: Bool = false) {
+        self.screenDistance = screenDistance
+        self.windowDistance = windowDistance
+        self.centerDistance = centerDistance
         self.snapToScreen = snapToScreen
         self.snapToWindows = snapToWindows
+        self.snapToCenter = snapToCenter
+    }
+
+    /// Same distance for every zone (handy in tests and the debug CLI).
+    public init(distance: CGFloat, snapToScreen: Bool = true,
+                snapToWindows: Bool = true, snapToCenter: Bool = false) {
+        self.init(screenDistance: distance, windowDistance: distance, centerDistance: distance,
+                  snapToScreen: snapToScreen,
+                  snapToWindows: snapToWindows, snapToCenter: snapToCenter)
+    }
+
+    /// True when at least one zone can catch anything.
+    var isActive: Bool {
+        (snapToScreen && screenDistance > 0) || (snapToWindows && windowDistance > 0)
+            || (snapToCenter && centerDistance > 0)
     }
 
     /// - Parameters:
@@ -60,10 +85,23 @@ public struct SnapEngine: Equatable, Sendable {
 
     enum Axis: CaseIterable { case x, y }
 
-    /// An edge of the window held on a target line.
+    /// Which line of the window is held: its low edge (left/top), high edge (right/bottom) or
+    /// centre.
+    enum Anchor: Equatable { case low, high, center }
+
+    /// A line of the window held on a target line, and the catch distance of the zone it came from.
     struct Attachment: Equatable {
-        let low: Bool
+        let anchor: Anchor
         let target: CGFloat
+        let zone: CGFloat
+        /// Also catches (and holds) a window pushed past the target, not just one near it: the top
+        /// of a screen with nothing above it. macOS keeps windows below the menu bar anyway, and
+        /// the cursor stops at the top of the screen, so a window dragged by a point lower than
+        /// its top could otherwise never get close enough to the edge to snap.
+        var catchesBeyond = false
+
+        /// True when the line at `value` is past the target (above it, for a top edge).
+        func isBeyond(_ value: CGFloat) -> Bool { catchesBeyond && value < target }
     }
 
     /// The edge of `r` at `low` (left/top) or high (right/bottom) end of `axis`.
@@ -71,6 +109,15 @@ public struct SnapEngine: Equatable, Sendable {
         switch axis {
         case .x: return low ? r.minX : r.maxX
         case .y: return low ? r.minY : r.maxY
+        }
+    }
+
+    /// The line of `r` an anchor refers to on `axis`.
+    func line(_ r: CGRect, _ axis: Axis, _ anchor: Anchor) -> CGFloat {
+        switch anchor {
+        case .low: return edge(r, axis, low: true)
+        case .high: return edge(r, axis, low: false)
+        case .center: return axis == .x ? r.midX : r.midY
         }
     }
 
@@ -97,44 +144,72 @@ public struct SnapEngine: Equatable, Sendable {
             ?? screens.max { $0.intersectionArea(with: f) < $1.intersectionArea(with: f) }
     }
 
+    /// True when another display sits right above `s` where the window is, so its top edge is a
+    /// way through (to that display) rather than the top of the desktop.
+    private func hasScreen(above s: CGRect, over f: CGRect, in screens: [CGRect]) -> Bool {
+        screens.contains { o in
+            o != s && o.maxY <= s.minY + 1 && o.maxY >= s.minY - 100
+                && o.minX < f.maxX && f.minX < o.maxX
+        }
+    }
+
     func moving(_ op: Operation) -> Edges {
         if case .resize(let e) = op { return e }
         return .all
     }
 
-    func canMove(_ moving: Edges, _ axis: Axis, low: Bool) -> Bool {
-        moving.contains(axis == .x ? (low ? .left : .right) : (low ? .top : .bottom))
+    func canMove(_ moving: Edges, _ axis: Axis, _ anchor: Anchor) -> Bool {
+        switch anchor {
+        case .low: return moving.contains(axis == .x ? .left : .top)
+        case .high: return moving.contains(axis == .x ? .right : .bottom)
+        case .center: return moving == .all // centring moves the whole window
+        }
     }
 
-    /// The nearest target, within `distance`, for a moving edge on `axis`.
+    /// The nearest target, within its zone's distance, for a moving line of the window on `axis`.
     func bestAttachment(axis: Axis, frame f: CGRect, moving: Edges, others: [CGRect],
                         screens: [CGRect]) -> Attachment? {
-        let others = snapToWindows ? others.filter { !$0.isEmpty } : []
-        let screens = snapToScreen ? screens : []
-        var candidates: [(low: Bool, target: CGFloat)] = []
+        var candidates: [Attachment] = []
         let other: Axis = axis == .x ? .y : .x
+        let display = screen(for: f, in: screens)
 
-        if let s = screen(for: f, in: screens) {
-            candidates.append((true, edge(s, axis, low: true)))
-            candidates.append((false, edge(s, axis, low: false)))
+        if snapToScreen, let s = display {
+            let openTop = axis == .y && !hasScreen(above: s, over: f, in: screens)
+            candidates.append(Attachment(anchor: .low, target: edge(s, axis, low: true), zone: screenDistance,
+                                         catchesBeyond: openTop))
+            candidates.append(Attachment(anchor: .high, target: edge(s, axis, low: false), zone: screenDistance))
         }
-        for o in others {
-            // Opposite edges: sit flush next to the other window when they overlap across the axis.
-            if overlaps(span(f, across: axis), span(o, across: axis)) {
-                candidates.append((true, edge(o, axis, low: false)))
-                candidates.append((false, edge(o, axis, low: true)))
+        if snapToWindows {
+            for o in others where !o.isEmpty {
+                // Opposite edges: sit flush next to the other window when they overlap across the axis.
+                if overlaps(span(f, across: axis), span(o, across: axis)) {
+                    candidates.append(Attachment(anchor: .low, target: edge(o, axis, low: false), zone: windowDistance))
+                    candidates.append(Attachment(anchor: .high, target: edge(o, axis, low: true), zone: windowDistance))
+                }
+                // Corner snapping: line up with a window this one is already flush against.
+                if flush(f, o, along: other) {
+                    candidates.append(Attachment(anchor: .low, target: edge(o, axis, low: true), zone: windowDistance))
+                    candidates.append(Attachment(anchor: .high, target: edge(o, axis, low: false), zone: windowDistance))
+                }
             }
-            // Corner snapping: line up with a window this one is already flush against.
-            if flush(f, o, along: other) {
-                candidates.append((true, edge(o, axis, low: true)))
-                candidates.append((false, edge(o, axis, low: false)))
+        }
+        // Screen centre: the window's centre line on this axis goes to the display's centre line
+        // when it is also near the centre on the other axis (centre of the screen), or when it is
+        // snapped to a screen edge on the other axis (centre along that edge).
+        if snapToCenter, let s = display {
+            let nearOtherCentre = abs(line(f, other, .center) - line(s, other, .center)) <= centerDistance
+            let onOtherEdge = abs(edge(f, other, low: true) - edge(s, other, low: true)) < 0.5
+                || abs(edge(f, other, low: false) - edge(s, other, low: false)) < 0.5
+            if nearOtherCentre || onOtherEdge {
+                candidates.append(Attachment(anchor: .center, target: line(s, axis, .center), zone: centerDistance))
             }
         }
 
         var best: (Attachment, CGFloat)?
-        for c in candidates where canMove(moving, axis, low: c.low) {
-            let d = abs(c.target - edge(f, axis, low: c.low))
-            if d <= distance, best == nil || d < best!.1 { best = (Attachment(low: c.low, target: c.target), d) }
+        for c in candidates where canMove(moving, axis, c.anchor) {
+            let value = line(f, axis, c.anchor)
+            let d = c.isBeyond(value) ? 0 : abs(c.target - value)
+            if d <= c.zone, best == nil || d < best!.1 { best = (c, d) }
         }
         return best?.0
     }
