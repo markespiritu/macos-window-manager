@@ -36,6 +36,9 @@ public final class SnapController {
     private var tap: CFMachPort?
     private var source: CFRunLoopSource?
     private var drag: DragState?
+    /// Bumped on every mouse-down, so release checks from an earlier drag stand down.
+    private var dragGeneration = 0
+    private static let releaseLog = Logger(subsystem: "io.marky.windowmanager", category: "release")
 
     private struct DragState {
         let windowID: CGWindowID
@@ -130,6 +133,7 @@ public final class SnapController {
     }
 
     private func mouseDown(at point: CGPoint) {
+        dragGeneration &+= 1
         if drag?.owns == true { placer.endDrag() } // the last drag never saw its mouse-up
         drag = nil
         zones?.cancelDrag()
@@ -227,6 +231,32 @@ public final class SnapController {
                                 dx: mouse.x - d.startMouse.x, dy: mouse.y - d.startMouse.y)
         let target = snaps(d, flags) ? session.update(raw) : raw
         if target != d.placed { place(window, at: target, operation: session.operation) }
+        holdAfterRelease(window, at: target, operation: session.operation)
+    }
+
+    /// Keeps a released window where the drag left it. The mouse-up is passed on so the app and
+    /// macOS end their drag, and some apps (or macOS, finishing a title-bar drag it started before
+    /// this controller took over) then move the window to where *they* think it belongs: the
+    /// unsnapped spot under the cursor. That showed up as a window jumping back off the edge it had
+    /// snapped to. For a short while after release, anything that moves the window away from the
+    /// final frame is undone, unless a new drag has started.
+    private func holdAfterRelease(_ window: Window, at target: CGRect, operation: SnapEngine.Operation) {
+        // Moves only: after a resize an app may legitimately adjust the size (terminals round to
+        // whole character cells), and that must not be fought.
+        guard operation == .move, let wid = window.windowID else { return }
+        let generation = dragGeneration
+        var corrections = 0
+        for delay in [0.05, 0.12, 0.25, 0.5] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                guard let self, self.dragGeneration == generation, self.drag == nil,
+                      let now = WindowList.frame(of: wid),
+                      !WindowPlacer.arrived(now, at: target, operation: operation) else { return }
+                corrections += 1
+                Self.releaseLog.info("wid \(wid) moved after release to \(now.debugDescription, privacy: .public), restoring \(target.debugDescription, privacy: .public) (\(corrections))")
+                self.placer.place(window, at: target, operation: operation)
+                self.placer.endDrag()
+            }
+        }
     }
 
     /// Snap edges on this event: snapping is on for the drag and the bypass key is not held.
