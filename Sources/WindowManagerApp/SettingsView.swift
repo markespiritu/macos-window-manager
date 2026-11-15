@@ -12,9 +12,9 @@ struct SettingsView: View {
         TabView {
             GeneralSettings(app: app, permission: permission)
                 .tabItem { Label("General", systemImage: "gearshape") }
-            SnappingSettings(settings: settings)
+            SnappingSettings(settings: settings, zoneStore: app.zoneStore)
                 .tabItem { Label("Snapping", systemImage: "rectangle.and.arrow.up.right.and.arrow.down.left") }
-            ZonesSettings(store: app.zoneStore, history: app.zoneHistory)
+            ZonesSettings(store: app.zoneStore, settings: settings, history: app.zoneHistory)
                 .tabItem { Label("Zones", systemImage: "rectangle.split.3x1") }
         }
         .frame(minWidth: 700, maxWidth: .infinity, minHeight: 600, maxHeight: .infinity)
@@ -66,6 +66,7 @@ private struct GeneralSettings: View {
 
 private struct SnappingSettings: View {
     @ObservedObject var settings: SettingsStore
+    @ObservedObject var zoneStore: ZoneStore
 
     var body: some View {
         Form {
@@ -88,8 +89,31 @@ private struct SnappingSettings: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             .disabled(!settings.snappingEnabled)
+            Section {
+                Picker("Hold to turn snapping off", selection: $settings.snapBypassKey) {
+                    Text("No key").tag(ModifierKey?.none)
+                    // The zone key is left out: one key never does both.
+                    ForEach(ModifierKey.allCases.filter { $0 != zoneStore.modifier }) {
+                        Text($0.label).tag(ModifierKey?.some($0))
+                    }
+                }
+            } footer: {
+                Text(bypassFooter)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .disabled(!settings.snappingEnabled)
         }
         .formStyle(.grouped)
+    }
+}
+
+private extension SnappingSettings {
+    var bypassFooter: String {
+        let zones = "\(zoneStore.modifier.label) is the zone key and can't be used here."
+        guard let key = settings.snapBypassKey else { return "Windows always snap while you move or resize them. " + zones }
+        return "While you move or resize a window, hold \(key.label) to place it freely, close to an edge or another window. Press it at any point in the drag; let go and the window snaps again. " + zones
     }
 }
 

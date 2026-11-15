@@ -14,6 +14,11 @@ public final class SettingsStore: ObservableObject {
     @Published public var releaseDistance: Double { didSet { defaults.set(releaseDistance, forKey: "releaseDistance") } }
     @Published public var snapToScreenEdges: Bool { didSet { defaults.set(snapToScreenEdges, forKey: "snapToScreenEdges") } }
     @Published public var snapToWindows: Bool { didSet { defaults.set(snapToWindows, forKey: "snapToWindows") } }
+    /// Held during a move or resize, turns snapping off until it is released (nil: no key).
+    /// Never the same as the zone key; see `ModifierKey.snapBypass(_:zoneKey:)`.
+    @Published public var snapBypassKey: ModifierKey? {
+        didSet { defaults.set(snapBypassKey?.rawValue ?? "none", forKey: "snapBypassKey") }
+    }
 
     public init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -22,6 +27,10 @@ public final class SettingsStore: ObservableObject {
         releaseDistance = defaults.object(forKey: "releaseDistance") as? Double ?? 10
         snapToScreenEdges = defaults.object(forKey: "snapToScreenEdges") as? Bool ?? true
         snapToWindows = defaults.object(forKey: "snapToWindows") as? Bool ?? true
+        switch defaults.string(forKey: "snapBypassKey") {
+        case nil: snapBypassKey = .command
+        case let saved?: snapBypassKey = ModifierKey(rawValue: saved) // "none": nil
+        }
     }
 
     public var snapEngine: SnapEngine {

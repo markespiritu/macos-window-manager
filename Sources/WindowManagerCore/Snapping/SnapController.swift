@@ -23,6 +23,9 @@ public final class SnapController {
     }
     /// Edge snapping. When off, drags are left to macOS (zones still work for moves).
     public var snapping = true
+    /// Held during a move or resize, turns snapping off until it is released, so a window can sit
+    /// a few points from an edge or another window. nil: no key.
+    public var bypassKey: ModifierKey?
     /// Zones shown while moving a window (Shift held, by default).
     public var zones: ZoneController?
     /// False until the event tap exists (it needs the Accessibility permission).
@@ -117,9 +120,9 @@ public final class SnapController {
             mouseUp(at: event.location, flags: event.flags)
             return true
         case .flagsChanged:
-            // Pressing or releasing Shift / Ctrl mid-drag shows, hides or spans zones at once,
-            // without waiting for the mouse to move.
-            if let d = drag, d.session?.operation == .move { zones?.update(mouse: d.mouse, flags: event.flags) }
+            // Pressing or releasing a modifier mid-drag shows, hides or spans zones, or turns
+            // snapping off or back on, at once, without waiting for the mouse to move.
+            modifiersChanged(event.flags)
             return true
         default:
             return true
@@ -185,8 +188,9 @@ public final class SnapController {
                                 dx: mouse.x - d.startMouse.x, dy: mouse.y - d.startMouse.y)
         let inZones = session.operation == .move && zones?.update(mouse: mouse, flags: flags) != nil
         guard d.owns else { drag = d; return true }
-        // Over zones the window just follows the mouse; it goes into the zone on release.
-        let target = inZones || !d.snaps ? raw : session.update(raw)
+        // Over zones, or while the bypass key is held, the window just follows the mouse; it goes
+        // into the zone on release.
+        let target = inZones || !snaps(d, flags) ? raw : session.update(raw)
         d.session = session
         if target != d.placed {
             place(window, at: target, operation: d.resize ? .resize([.left, .top]) : session.operation)
@@ -221,8 +225,30 @@ public final class SnapController {
         defer { placer.endDrag() }
         let raw = Self.rawFrame(start: d.startFrame, operation: session.operation,
                                 dx: mouse.x - d.startMouse.x, dy: mouse.y - d.startMouse.y)
-        let target = d.snaps ? session.update(raw) : raw
+        let target = snaps(d, flags) ? session.update(raw) : raw
         if target != d.placed { place(window, at: target, operation: session.operation) }
+    }
+
+    /// Snap edges on this event: snapping is on for the drag and the bypass key is not held.
+    private func snaps(_ d: DragState, _ flags: CGEventFlags) -> Bool {
+        guard d.snaps else { return false }
+        guard let key = bypassKey else { return true }
+        return !flags.contains(key.flag)
+    }
+
+    /// A modifier went down or up mid-drag: updates the zones, and places the window again where
+    /// the mouse is now, snapped or not, so the bypass key frees or re-snaps it at once.
+    private func modifiersChanged(_ flags: CGEventFlags) {
+        guard var d = drag, var session = d.session, let window = d.window else { return }
+        let inZones = session.operation == .move && zones?.update(mouse: d.mouse, flags: flags) != nil
+        guard d.owns, !inZones, !d.resize else { return }
+        let raw = Self.rawFrame(start: d.startFrame, operation: session.operation,
+                                dx: d.mouse.x - d.startMouse.x, dy: d.mouse.y - d.startMouse.y)
+        let target = snaps(d, flags) ? session.update(raw) : raw
+        d.session = session
+        if target != d.placed { place(window, at: target, operation: session.operation) }
+        d.placed = target
+        drag = d
     }
 
     /// The frame a window dragged out of its zone gets: its old size, at the same top edge, with the
