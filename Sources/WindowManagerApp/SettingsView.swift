@@ -75,16 +75,16 @@ private struct SnappingSettings: View {
             }
             Section {
                 Toggle("Snap to screen edges", isOn: $settings.snapToScreenEdges)
-                Toggle("Snap to other windows", isOn: $settings.snapToWindows)
-                Toggle("Snap to screen centre", isOn: $settings.snapToCenter)
                 LabeledContent("Screen edge distance") {
                     PointsField(value: $settings.snapDistance)
                 }
                 .disabled(!settings.snapToScreenEdges)
+                Toggle("Snap to other windows", isOn: $settings.snapToWindows)
                 LabeledContent("Window distance") {
                     PointsField(value: $settings.windowSnapDistance)
                 }
                 .disabled(!settings.snapToWindows)
+                Toggle("Snap to screen centre", isOn: $settings.snapToCenter)
                 LabeledContent("Centre distance") {
                     PointsField(value: $settings.centerSnapDistance)
                 }
