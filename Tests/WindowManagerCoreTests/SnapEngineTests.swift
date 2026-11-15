@@ -228,16 +228,14 @@ final class SnapSessionTests: XCTestCase {
         XCTAssertFalse(s.isAttached)
     }
 
-    func testIgnoresOtherTargetsWhileDetaching() {
-        // Attached by its top to `a`'s top (side by side). Pulling down brings its bottom within
-        // range of `b`'s top, but it must stay on `a` until fully detached.
+    func testNearestTargetWinsOnEveryMove() {
+        // Top lined up with `a`'s top (side by side). Pulled down, its bottom comes closer to `b`'s
+        // top than its top is to `a`'s: like KWin, it switches to the nearer target at once.
         var s = session(others: [a, b])
         let w = CGSize(width: 500, height: 700)
         XCTAssertEqual(s.update(CGRect(origin: CGPoint(x: 500, y: 205), size: w)).minY, 200)
-        // Raw top at 213: 13pt from `a`'s top. Raw bottom 913 is 7pt from `b`'s top (closer!), ignored.
-        XCTAssertEqual(s.update(CGRect(origin: CGPoint(x: 500, y: 213), size: w)).minY, 200)
-        // Raw top at 216: detached from `a`; now `b` (bottom 916, 4pt away) may attach.
-        XCTAssertEqual(s.update(CGRect(origin: CGPoint(x: 500, y: 216), size: w)).maxY, 920)
+        // Top 13pt from `a`'s top, bottom 913 is 7pt from `b`'s top: `b` wins.
+        XCTAssertEqual(s.update(CGRect(origin: CGPoint(x: 500, y: 213), size: w)).maxY, 920)
     }
 
     func testAxesAreIndependent() {

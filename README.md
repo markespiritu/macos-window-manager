@@ -74,8 +74,8 @@ distance (as in KWin):
 - **Screen centre** (off by default, 10 pt): a moved window centres on the screen when its centre
   comes close on both axes, or centres along a screen edge it is snapped to.
 
-A snapped edge stays put until you pull it past its zone's distance, and it ignores other targets
-until then, so small hand movements don't knock it loose. When resizing, only the edge you drag snaps: drag the bottom of the shorter
+Like KWin, snapping is worked out afresh on every mouse movement: the nearest target within its
+zone's distance wins, and an edge lets go at the same distance it caught. When resizing, only the edge you drag snaps: drag the bottom of the shorter
 of two side-by-side windows near the other's bottom and they end up the same height.
 
 To put a window a few points from an edge or another window, hold ⌘ Command while you move or
