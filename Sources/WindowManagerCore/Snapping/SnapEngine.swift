@@ -94,6 +94,14 @@ public struct SnapEngine: Equatable, Sendable {
         let anchor: Anchor
         let target: CGFloat
         let zone: CGFloat
+        /// Also catches (and holds) a window pushed past the target, not just one near it: the top
+        /// of a screen with nothing above it. macOS keeps windows below the menu bar anyway, and
+        /// the cursor stops at the top of the screen, so a window dragged by a point lower than
+        /// its top could otherwise never get close enough to the edge to snap.
+        var catchesBeyond = false
+
+        /// True when the line at `value` is past the target (above it, for a top edge).
+        func isBeyond(_ value: CGFloat) -> Bool { catchesBeyond && value < target }
     }
 
     /// The edge of `r` at `low` (left/top) or high (right/bottom) end of `axis`.
@@ -136,6 +144,15 @@ public struct SnapEngine: Equatable, Sendable {
             ?? screens.max { $0.intersectionArea(with: f) < $1.intersectionArea(with: f) }
     }
 
+    /// True when another display sits right above `s` where the window is, so its top edge is a
+    /// way through (to that display) rather than the top of the desktop.
+    private func hasScreen(above s: CGRect, over f: CGRect, in screens: [CGRect]) -> Bool {
+        screens.contains { o in
+            o != s && o.maxY <= s.minY + 1 && o.maxY >= s.minY - 100
+                && o.minX < f.maxX && f.minX < o.maxX
+        }
+    }
+
     func moving(_ op: Operation) -> Edges {
         if case .resize(let e) = op { return e }
         return .all
@@ -157,7 +174,9 @@ public struct SnapEngine: Equatable, Sendable {
         let display = screen(for: f, in: screens)
 
         if snapToScreen, let s = display {
-            candidates.append(Attachment(anchor: .low, target: edge(s, axis, low: true), zone: screenDistance))
+            let openTop = axis == .y && !hasScreen(above: s, over: f, in: screens)
+            candidates.append(Attachment(anchor: .low, target: edge(s, axis, low: true), zone: screenDistance,
+                                         catchesBeyond: openTop))
             candidates.append(Attachment(anchor: .high, target: edge(s, axis, low: false), zone: screenDistance))
         }
         if snapToWindows {
@@ -188,7 +207,8 @@ public struct SnapEngine: Equatable, Sendable {
 
         var best: (Attachment, CGFloat)?
         for c in candidates where canMove(moving, axis, c.anchor) {
-            let d = abs(c.target - line(f, axis, c.anchor))
+            let value = line(f, axis, c.anchor)
+            let d = c.isBeyond(value) ? 0 : abs(c.target - value)
             if d <= c.zone, best == nil || d < best!.1 { best = (c, d) }
         }
         return best?.0

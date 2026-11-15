@@ -40,7 +40,7 @@ public struct SnapSession {
             if pass == 2 && attachments[.x] != nil { continue }
             if let a = attachments[axis], pass < 2 {
                 let d = a.target - engine.line(raw, axis, a.anchor)
-                if abs(d) <= a.zone {
+                if abs(d) <= a.zone || a.isBeyond(engine.line(raw, axis, a.anchor)) {
                     r = engine.apply(d, axis: axis, to: r, operation: operation, moving: moving)
                     continue
                 }

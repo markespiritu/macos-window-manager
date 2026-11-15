@@ -252,7 +252,7 @@ public final class SnapController {
                       let now = WindowList.frame(of: wid),
                       !WindowPlacer.arrived(now, at: target, operation: operation) else { return }
                 corrections += 1
-                Self.releaseLog.info("wid \(wid) moved after release to \(now.debugDescription, privacy: .public), restoring \(target.debugDescription, privacy: .public) (\(corrections))")
+                Self.releaseLog.notice("wid \(wid) moved after release to \(now.debugDescription, privacy: .public), restoring \(target.debugDescription, privacy: .public) (\(corrections))")
                 self.placer.place(window, at: target, operation: operation)
                 self.placer.endDrag()
             }

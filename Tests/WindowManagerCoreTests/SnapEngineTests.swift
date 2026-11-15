@@ -346,3 +346,46 @@ final class SnapZoneTests: XCTestCase {
         XCTAssertEqual(e.snap(f, operation: .move, others: [], screens: [screen]), f)
     }
 }
+
+final class ScreenTopTests: XCTestCase {
+    // Usable area below a 30pt menu bar.
+    let screen = CGRect(x: 0, y: 30, width: 2000, height: 1200)
+
+    func testWindowPushedPastTheTopSnapsToIt() {
+        // Dragged by a point 60pt below its top with the cursor at the top of the screen: the raw
+        // top is far above the edge, beyond any snap distance. It still snaps to the edge.
+        let f = CGRect(x: 300, y: -60, width: 600, height: 400)
+        XCTAssertEqual(SnapEngine(distance: 10).snap(f, operation: .move, others: [], screens: [screen]).minY, 30)
+    }
+
+    func testStaysOnTheTopUntilPulledDownPastTheDistance() {
+        var s = SnapSession(engine: SnapEngine(distance: 10), operation: .move, others: [], screens: [screen])
+        let size = CGSize(width: 600, height: 400)
+        XCTAssertEqual(s.update(CGRect(origin: CGPoint(x: 300, y: -60), size: size)).minY, 30)
+        XCTAssertEqual(s.update(CGRect(origin: CGPoint(x: 300, y: 38), size: size)).minY, 30) // 8pt below: held
+        XCTAssertEqual(s.update(CGRect(origin: CGPoint(x: 300, y: 45), size: size)).minY, 45) // 15pt: free
+    }
+
+    func testOtherEdgesOnlyCatchNearby() {
+        // Hanging 60pt off the left edge is allowed.
+        let f = CGRect(x: -60, y: 300, width: 600, height: 400)
+        XCTAssertEqual(SnapEngine(distance: 10).snap(f, operation: .move, others: [], screens: [screen]).minX, -60)
+    }
+
+    func testTopWithADisplayAboveIsAWayThrough() {
+        // A display directly above: dragging up past the top heads there, so no hold.
+        let above = CGRect(x: 0, y: 30, width: 2000, height: 1000)     // usable 30...1030
+        let below = CGRect(x: 0, y: 1055, width: 2000, height: 1145)   // its menu bar: 1030...1055
+        let f = CGRect(x: 300, y: 1000, width: 600, height: 400) // centre (y 1200) on the lower display
+        XCTAssertEqual(SnapEngine(distance: 10).snap(f, operation: .move, others: [], screens: [above, below]).minY, 1000)
+        // Without the display above, the same window is held at the lower display's top.
+        XCTAssertEqual(SnapEngine(distance: 10).snap(f, operation: .move, others: [], screens: [below]).minY, 1055)
+    }
+
+    func testResizingTheTopEdgePastTheMenuBarSnaps() {
+        let f = CGRect(x: 300, y: -20, width: 600, height: 500)
+        let r = SnapEngine(distance: 10).snap(f, operation: .resize(.top), others: [], screens: [screen])
+        XCTAssertEqual(r.minY, 30)
+        XCTAssertEqual(r.maxY, f.maxY)
+    }
+}
