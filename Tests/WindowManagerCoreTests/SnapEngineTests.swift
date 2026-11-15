@@ -201,7 +201,9 @@ final class SettingsTests: XCTestCase {
         s.snapDistance = 25
         s.snapToWindows = false
         let r = SettingsStore(defaults: d)
-        XCTAssertEqual(r.snapEngine, SnapEngine(distance: 25, releaseDistance: 25, snapToScreen: true, snapToWindows: false))
+        XCTAssertEqual(r.snapEngine, SnapEngine(screenDistance: 25, windowDistance: 10, centerDistance: 10,
+                                                releaseDistance: 10, snapToWindows: false, snapToCenter: false))
+        XCTAssertFalse(r.snapToCenter)
     }
 }
 
@@ -293,5 +295,57 @@ final class SnapBypassKeyTests: XCTestCase {
             XCTAssertNotEqual(free, zone.spanModifier)
         }
         XCTAssertEqual(ModifierKey.freeSnapBypass(zoneKey: .command), .option)
+    }
+}
+
+final class SnapZoneTests: XCTestCase {
+    // Usable area of a display: centre at (1000, 630).
+    let screen = CGRect(x: 0, y: 30, width: 2000, height: 1200)
+    let neighbour = CGRect(x: 1000, y: 200, width: 600, height: 700)
+
+    func testScreenAndWindowZonesHaveTheirOwnDistances() {
+        let e = SnapEngine(screenDistance: 20, windowDistance: 5)
+        // 15pt from the screen's left edge: inside the 20pt screen zone.
+        XCTAssertEqual(e.snap(CGRect(x: 15, y: 300, width: 400, height: 300), operation: .move, others: [], screens: [screen]).minX, 0)
+        // 8pt from the neighbour: outside the 5pt window zone.
+        let f = CGRect(x: 492, y: 400, width: 500, height: 300)
+        XCTAssertEqual(e.snap(f, operation: .move, others: [neighbour], screens: [screen]), f)
+        // 4pt: inside.
+        XCTAssertEqual(e.snap(f.offsetBy(dx: 4, dy: 0), operation: .move, others: [neighbour], screens: [screen]).maxX, 1000)
+    }
+
+    func testCentreIsOffByDefault() {
+        let f = CGRect(x: 705, y: 485, width: 600, height: 300) // centre (1005, 635)
+        XCTAssertEqual(SnapEngine().snap(f, operation: .move, others: [], screens: [screen]), f)
+    }
+
+    func testCentreSnapsWhenNearOnBothAxes() {
+        let e = SnapEngine(snapToCenter: true)
+        let f = CGRect(x: 705, y: 485, width: 600, height: 300) // centre (1005, 635): 5pt off on both
+        XCTAssertEqual(e.snap(f, operation: .move, others: [], screens: [screen]).center, CGPoint(x: 1000, y: 630))
+        // Near the centre on x but far on y: no centring.
+        let g = CGRect(x: 705, y: 200, width: 600, height: 300)
+        XCTAssertEqual(e.snap(g, operation: .move, others: [], screens: [screen]), g)
+    }
+
+    func testCentreAlongASnappedScreenEdge() {
+        // Snapped to the top edge (y 30 after snapping), centre 6pt right of the screen's centre:
+        // it centres horizontally along the top edge.
+        let e = SnapEngine(snapToCenter: true)
+        let f = CGRect(x: 706, y: 34, width: 600, height: 300)
+        let r = e.snap(f, operation: .move, others: [], screens: [screen])
+        XCTAssertEqual(r.origin, CGPoint(x: 700, y: 30))
+    }
+
+    func testResizeNeverCentres() {
+        let e = SnapEngine(snapToCenter: true)
+        let f = CGRect(x: 705, y: 485, width: 600, height: 300)
+        XCTAssertEqual(e.snap(f, operation: .resize(.right), others: [], screens: [screen]), f)
+    }
+
+    func testCentreZoneHasItsOwnDistance() {
+        let e = SnapEngine(centerDistance: 3, snapToCenter: true)
+        let f = CGRect(x: 705, y: 485, width: 600, height: 300) // 5pt off: outside a 3pt zone
+        XCTAssertEqual(e.snap(f, operation: .move, others: [], screens: [screen]), f)
     }
 }

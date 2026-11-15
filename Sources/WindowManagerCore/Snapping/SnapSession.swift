@@ -4,9 +4,11 @@ import CoreGraphics
 ///
 /// Feed it the frame the window would have without snapping (the "raw" frame, from the mouse),
 /// on every drag event. On each axis independently:
-/// - while detached, an edge that comes within the snap distance of a target attaches to it;
+/// - while detached, an edge (or the centre) that comes within its zone's distance of a target
+///   attaches to it;
 /// - while attached, the window stays on that target and every other target is ignored, until the
-///   raw frame has pulled more than the release distance away from it. Only then is it detached,
+///   raw frame has pulled more than the release distance (or the zone's distance, if larger)
+///   away from it. Only then is it detached,
 ///   and only then does it start looking for new targets.
 /// That keeps a window from hopping between nearby targets while being pulled off one.
 public struct SnapSession {
@@ -29,7 +31,7 @@ public struct SnapSession {
 
     /// The frame the window should have for this raw frame.
     public mutating func update(_ raw: CGRect) -> CGRect {
-        guard engine.distance > 0 else { return raw }
+        guard engine.isActive else { return raw }
         let moving = engine.moving(operation)
         var r = raw
         // x, then y, then x again: snapping flush on y can enable corner alignment on x (stacked
@@ -37,8 +39,8 @@ public struct SnapSession {
         for (pass, axis) in [SnapEngine.Axis.x, .y, .x].enumerated() {
             if pass == 2 && attachments[.x] != nil { continue }
             if let a = attachments[axis], pass < 2 {
-                let d = a.target - engine.edge(raw, axis, low: a.low)
-                if abs(d) <= engine.releaseDistance {
+                let d = a.target - engine.line(raw, axis, a.anchor)
+                if abs(d) <= max(engine.releaseDistance, a.zone) {
                     r = engine.apply(d, axis: axis, to: r, operation: operation, moving: moving)
                     continue
                 }
@@ -48,7 +50,7 @@ public struct SnapSession {
             // looking for y alignment even if the raw frame has drifted off it.
             if let a = engine.bestAttachment(axis: axis, frame: r, moving: moving, others: others, screens: screens) {
                 attachments[axis] = a
-                let d = a.target - engine.edge(r, axis, low: a.low)
+                let d = a.target - engine.line(r, axis, a.anchor)
                 r = engine.apply(d, axis: axis, to: r, operation: operation, moving: moving)
             }
         }

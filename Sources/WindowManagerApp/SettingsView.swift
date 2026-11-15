@@ -76,14 +76,24 @@ private struct SnappingSettings: View {
             Section {
                 Toggle("Snap to screen edges", isOn: $settings.snapToScreenEdges)
                 Toggle("Snap to other windows", isOn: $settings.snapToWindows)
-                LabeledContent("Snap distance") {
+                Toggle("Snap to screen centre", isOn: $settings.snapToCenter)
+                LabeledContent("Screen edge distance") {
                     PointsField(value: $settings.snapDistance)
                 }
+                .disabled(!settings.snapToScreenEdges)
+                LabeledContent("Window distance") {
+                    PointsField(value: $settings.windowSnapDistance)
+                }
+                .disabled(!settings.snapToWindows)
+                LabeledContent("Centre distance") {
+                    PointsField(value: $settings.centerSnapDistance)
+                }
+                .disabled(!settings.snapToCenter)
                 LabeledContent("Pull-off distance") {
                     PointsField(value: $settings.releaseDistance)
                 }
             } footer: {
-                Text("Screen edges and other windows use the same snap distance. A snapped edge lets go once pulled past the pull-off distance (never less than the snap distance). Windows that sit flush side by side also line up their tops and bottoms, including when you resize one of them.")
+                Text("Each zone catches within its own distance, as in KWin. A snapped edge lets go once pulled past the pull-off distance (never less than its zone's distance). Windows that sit flush side by side also line up their tops and bottoms, including when you resize one of them. Centre snapping centres a moved window on the screen, or along a screen edge it is snapped to.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)

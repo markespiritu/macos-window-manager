@@ -8,7 +8,7 @@ KWin does, and you can drop them into zone layouts you design yourself, like Fan
 
 ## Features
 
-- **Edge and window snapping** while you move *and* resize, with a configurable snap distance and
+- **Edge, window and centre snapping** while you move *and* resize, with a distance per zone and a
   pull-off distance. Hold ⌘ Command (configurable) mid-drag to place a window freely.
 - **Zones**: hold ⌥ Option while dragging a window to show the display's zones and drop it into
   one. Span several zones, overlap zones on layers, and get the window's old size back when you
@@ -64,13 +64,15 @@ and opens Settings.
 
 <img src="docs/images/snap-screen-corner.gif" alt="Window A snaps into the top-left corner of the screen" width="600">
 
-While you move or resize a window, its edges snap to anything within the snap distance (10 pt by
-default):
+While you move or resize a window, it snaps to targets in three zones, each with its own
+distance (as in KWin):
 
-- the edges of the screen's usable area;
-- the facing edge of a neighbouring window, so windows sit flush side by side or stacked;
-- the same edge of a window it sits next to, so the tops and bottoms of side-by-side windows (and
-  the sides of stacked windows) line up and corners meet.
+- **Screen edges** (10 pt by default): the edges of the screen's usable area.
+- **Other windows** (10 pt by default): the facing edge of a neighbouring window, so windows sit
+  flush side by side or stacked; and, once flush, the same edge of that window, so the tops and
+  bottoms of side-by-side windows (and the sides of stacked windows) line up and corners meet.
+- **Screen centre** (off by default, 10 pt): a moved window centres on the screen when its centre
+  comes close on both axes, or centres along a screen edge it is snapped to.
 
 A snapped edge stays put until you pull it past the pull-off distance, so small hand movements
 don't knock it loose. When resizing, only the edge you drag snaps: drag the bottom of the shorter
