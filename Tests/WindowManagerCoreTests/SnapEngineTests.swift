@@ -272,3 +272,26 @@ final class SnapSessionTests: XCTestCase {
 private func raw(_ s: CGRect, _ op: SnapEngine.Operation, _ dx: CGFloat, _ dy: CGFloat) -> CGRect {
     SnapController.rawFrame(start: s, operation: op, dx: dx, dy: dy)
 }
+
+@MainActor
+final class SnapBypassKeyTests: XCTestCase {
+    func testDefaultsToCommandAndPersistsNoKey() {
+        let d = UserDefaults(suiteName: "WindowManagerTests.\(UUID().uuidString)")!
+        XCTAssertEqual(SettingsStore(defaults: d).snapBypassKey, .command)
+        SettingsStore(defaults: d).snapBypassKey = nil
+        XCTAssertNil(SettingsStore(defaults: d).snapBypassKey)
+        SettingsStore(defaults: d).snapBypassKey = .control
+        XCTAssertEqual(SettingsStore(defaults: d).snapBypassKey, .control)
+    }
+
+    func testNeverTheZoneKey() {
+        XCTAssertNil(ModifierKey.snapBypass(.option, zoneKey: .option))
+        XCTAssertEqual(ModifierKey.snapBypass(.command, zoneKey: .shift), .command)
+        for zone in ModifierKey.allCases {
+            let free = ModifierKey.freeSnapBypass(zoneKey: zone)
+            XCTAssertNotEqual(free, zone)
+            XCTAssertNotEqual(free, zone.spanModifier)
+        }
+        XCTAssertEqual(ModifierKey.freeSnapBypass(zoneKey: .command), .option)
+    }
+}

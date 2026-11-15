@@ -9,7 +9,7 @@ KWin does, and you can drop them into zone layouts you design yourself, like Fan
 ## Features
 
 - **Edge and window snapping** while you move *and* resize, with a configurable snap distance and
-  pull-off distance.
+  pull-off distance. Hold ⌘ Command (configurable) mid-drag to place a window freely.
 - **Zones**: hold ⌥ Option while dragging a window to show the display's zones and drop it into
   one. Span several zones, overlap zones on layers, and get the window's old size back when you
   drag it out.
@@ -75,6 +75,10 @@ default):
 A snapped edge stays put until you pull it past the pull-off distance, so small hand movements
 don't knock it loose. When resizing, only the edge you drag snaps: drag the bottom of the shorter
 of two side-by-side windows near the other's bottom and they end up the same height.
+
+To put a window a few points from an edge or another window, hold ⌘ Command while you move or
+resize it: snapping stops for as long as the key is down, and picks up again when you let go, even
+mid-drag. The key is set in Settings › Snapping (or "No key"); it can't be the zone key.
 
 ![Settings › Snapping](docs/images/settings-snapping.png)
 

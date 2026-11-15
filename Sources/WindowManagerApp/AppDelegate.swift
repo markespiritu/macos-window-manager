@@ -26,6 +26,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, Obse
         snapper = SnapController(engine: settings.snapEngine, isEnabled: settings.snappingEnabled || zoneStore.enabled)
         snapper.snapping = settings.snappingEnabled
         snapper.zones = zones
+        // The snapping bypass key, never the zone key (a zone key set to Command before the bypass
+        // key existed moves the bypass key's default elsewhere).
+        if let key = settings.snapBypassKey, key == zoneStore.modifier {
+            settings.snapBypassKey = ModifierKey.freeSnapBypass(zoneKey: key)
+        }
+        settings.$snapBypassKey.combineLatest(zoneStore.$modifier)
+            .sink { [weak self] key, zoneKey in self?.snapper.bypassKey = ModifierKey.snapBypass(key, zoneKey: zoneKey) }
+            .store(in: &cancellables)
         menuBar = MenuBarController(app: self)
         NSApp.mainMenu = makeMainMenu()
 

@@ -5,6 +5,8 @@ import WindowManagerCore
 /// Settings › Zones: preferences, the layout each display uses, and an editor for that layout.
 struct ZonesSettings: View {
     @ObservedObject var store: ZoneStore
+    /// For the snapping bypass key, which must not be the zone key.
+    @ObservedObject var settings: SettingsStore
     /// Undo / redo for zone edits and layout list changes (⌘Z, ⇧⌘Z and the Edit menu).
     let history: ZoneEditHistory
     @State private var displays = DisplayService.displays
@@ -65,6 +67,14 @@ struct ZonesSettings: View {
         }
     }
 
+    /// The zone key. Picking the snapping bypass key swaps the two, so one key never does both.
+    private var zoneKey: Binding<ModifierKey> {
+        Binding(get: { store.modifier }, set: { key in
+            if settings.snapBypassKey == key { settings.snapBypassKey = store.modifier }
+            store.modifier = key
+        })
+    }
+
     private var preferences: some View {
         VStack(alignment: .leading, spacing: 6) {
             Toggle("Drop windows into zones when moving them", isOn: $store.enabled)
@@ -74,8 +84,8 @@ struct ZonesSettings: View {
                     Text("Always, except holding").tag(ZoneActivation.always)
                 }
                 .fixedSize()
-                Picker("Key", selection: $store.modifier) {
-                    ForEach(ZoneModifier.allCases) { Text($0.label).tag($0) }
+                Picker("Key", selection: zoneKey) {
+                    ForEach(ModifierKey.allCases) { Text($0.label).tag($0) }
                 }
                 .labelsHidden()
                 .fixedSize()

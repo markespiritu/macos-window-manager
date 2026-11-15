@@ -9,8 +9,9 @@ public enum ZoneActivation: String, Codable, CaseIterable, Sendable {
     case always
 }
 
-/// The key that shows (or, in `always` mode, hides) zones during a drag.
-public enum ZoneModifier: String, Codable, CaseIterable, Identifiable, Sendable {
+/// A modifier key held during a drag: the one that shows (or, in `always` mode, hides) zones, and
+/// the one that turns snapping off for as long as it is held.
+public enum ModifierKey: String, Codable, CaseIterable, Identifiable, Sendable {
     case option, shift, command, control
 
     public var id: String { rawValue }
@@ -34,7 +35,19 @@ public enum ZoneModifier: String, Codable, CaseIterable, Identifiable, Sendable 
     }
 
     /// The key that spans several zones: Control, or Shift when Control is the zone key.
-    public var spanModifier: ZoneModifier { self == .control ? .shift : .control }
+    public var spanModifier: ModifierKey { self == .control ? .shift : .control }
+
+    /// The snapping bypass key that is in effect: none when it is the zone key, so one key never
+    /// does both (Settings keeps them apart; this guards against a hand-edited preference).
+    public static func snapBypass(_ key: ModifierKey?, zoneKey: ModifierKey) -> ModifierKey? {
+        key == zoneKey ? nil : key
+    }
+
+    /// A bypass key for when the chosen one is the zone key: Command, or the first other key that
+    /// neither shows nor spans zones.
+    public static func freeSnapBypass(zoneKey: ModifierKey) -> ModifierKey {
+        [.command, .option, .control, .shift].first { $0 != zoneKey && $0 != zoneKey.spanModifier }!
+    }
 }
 
 /// The zone layouts, which layout each display uses, and zone preferences. Persisted as JSON in
@@ -51,7 +64,7 @@ public final class ZoneStore: ObservableObject {
     @Published public var assignments: [String: UUID] { didSet { save() } }
     @Published public var enabled: Bool { didSet { save() } }
     @Published public var activation: ZoneActivation { didSet { save() } }
-    @Published public var modifier: ZoneModifier { didSet { save() } }
+    @Published public var modifier: ModifierKey { didSet { save() } }
     /// Drop a window on the border between two zones to span both.
     @Published public var spanAdjacentZones: Bool { didSet { save() } }
     /// A window dragged out of a zone gets back the size it had before it was put there.
@@ -64,7 +77,7 @@ public final class ZoneStore: ObservableObject {
         var assignments: [String: UUID]
         var enabled: Bool
         var activation: ZoneActivation
-        var modifier: ZoneModifier?
+        var modifier: ModifierKey?
         var spanAdjacentZones: Bool?
         var restoreSizeOnDragOut: Bool
         var overlapRule: ZoneOverlapRule?
