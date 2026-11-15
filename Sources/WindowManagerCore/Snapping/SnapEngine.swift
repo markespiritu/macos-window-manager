@@ -144,6 +144,17 @@ public struct SnapEngine: Equatable, Sendable {
             ?? screens.max { $0.intersectionArea(with: f) < $1.intersectionArea(with: f) }
     }
 
+    /// Centre-of-screen attachments for both axes, when a moved window's centre is within the
+    /// centre distance of its display's centre on both axes. This beats any other target, even one
+    /// the window is already held on: the screen centre is a single point the user aims for, and
+    /// edges of other windows around the middle of the screen would otherwise always catch first.
+    func screenCentre(for f: CGRect, operation: Operation, screens: [CGRect]) -> (x: Attachment, y: Attachment)? {
+        guard snapToCenter, centerDistance > 0, operation == .move, let s = screen(for: f, in: screens),
+              abs(f.midX - s.midX) <= centerDistance, abs(f.midY - s.midY) <= centerDistance else { return nil }
+        return (Attachment(anchor: .center, target: s.midX, zone: centerDistance),
+                Attachment(anchor: .center, target: s.midY, zone: centerDistance))
+    }
+
     /// True when another display sits right above `s` where the window is, so its top edge is a
     /// way through (to that display) rather than the top of the desktop.
     private func hasScreen(above s: CGRect, over f: CGRect, in screens: [CGRect]) -> Bool {

@@ -389,3 +389,18 @@ final class ScreenTopTests: XCTestCase {
         XCTAssertEqual(r.maxY, f.maxY)
     }
 }
+
+final class CentreOverrideTests: XCTestCase {
+    func testScreenCentreWinsOverAWindowEdgeAlreadyHeld() {
+        // Usable area centre (1000, 630). Another window's left edge at x 1305.
+        let screen = CGRect(x: 0, y: 30, width: 2000, height: 1200)
+        let other = CGRect(x: 1305, y: 100, width: 600, height: 1000)
+        var s = SnapSession(engine: SnapEngine(distance: 16, snapToCenter: true), operation: .move,
+                            others: [other], screens: [screen])
+        let size = CGSize(width: 600, height: 300)
+        // Right edge 1295: catches on the other window (10pt) while the centre is still 30pt off.
+        XCTAssertEqual(s.update(CGRect(origin: CGPoint(x: 695, y: 450), size: size)).maxX, 1305)
+        // Moving on towards the middle (centre now 8pt off on both axes): the centre takes over.
+        XCTAssertEqual(s.update(CGRect(origin: CGPoint(x: 692, y: 472), size: size)).center, CGPoint(x: 1000, y: 630))
+    }
+}

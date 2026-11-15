@@ -34,6 +34,10 @@ public struct SnapSession {
         guard engine.isActive else { return raw }
         let moving = engine.moving(operation)
         var r = raw
+        if let c = engine.screenCentre(for: raw, operation: operation, screens: screens) {
+            attachments[.x] = c.x
+            attachments[.y] = c.y
+        }
         // x, then y, then x again: snapping flush on y can enable corner alignment on x (stacked
         // windows lining up their sides), which the first x pass could not see yet.
         for (pass, axis) in [SnapEngine.Axis.x, .y, .x].enumerated() {
