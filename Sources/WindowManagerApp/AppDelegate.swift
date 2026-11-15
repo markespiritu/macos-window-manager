@@ -42,7 +42,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, Obse
         Publishers.MergeMany(settings.$snapDistance.map { _ in () }.eraseToAnyPublisher(),
                              settings.$snapToScreenEdges.map { _ in () }.eraseToAnyPublisher(),
                              settings.$snapToWindows.map { _ in () }.eraseToAnyPublisher(),
-                             settings.$releaseDistance.map { _ in () }.eraseToAnyPublisher(),
                              settings.$windowSnapDistance.map { _ in () }.eraseToAnyPublisher(),
                              settings.$snapToCenter.map { _ in () }.eraseToAnyPublisher(),
                              settings.$centerSnapDistance.map { _ in () }.eraseToAnyPublisher())

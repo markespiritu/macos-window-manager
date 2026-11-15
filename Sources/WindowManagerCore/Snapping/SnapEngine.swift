@@ -43,30 +43,26 @@ public struct SnapEngine: Equatable, Sendable {
     public var windowDistance: CGFloat
     /// Catch distance for the screen centre.
     public var centerDistance: CGFloat
-    /// How far an attached edge must be pulled from its target before it lets go. Never less than
-    /// the catch distance of the zone it is attached to.
-    public var releaseDistance: CGFloat
     public var snapToScreen: Bool
     public var snapToWindows: Bool
     public var snapToCenter: Bool
 
     public init(screenDistance: CGFloat = 10, windowDistance: CGFloat = 10, centerDistance: CGFloat = 10,
-                releaseDistance: CGFloat = 0, snapToScreen: Bool = true, snapToWindows: Bool = true,
+                snapToScreen: Bool = true, snapToWindows: Bool = true,
                 snapToCenter: Bool = false) {
         self.screenDistance = screenDistance
         self.windowDistance = windowDistance
         self.centerDistance = centerDistance
-        self.releaseDistance = releaseDistance
         self.snapToScreen = snapToScreen
         self.snapToWindows = snapToWindows
         self.snapToCenter = snapToCenter
     }
 
     /// Same distance for every zone (handy in tests and the debug CLI).
-    public init(distance: CGFloat, releaseDistance: CGFloat = 0, snapToScreen: Bool = true,
+    public init(distance: CGFloat, snapToScreen: Bool = true,
                 snapToWindows: Bool = true, snapToCenter: Bool = false) {
         self.init(screenDistance: distance, windowDistance: distance, centerDistance: distance,
-                  releaseDistance: releaseDistance, snapToScreen: snapToScreen,
+                  snapToScreen: snapToScreen,
                   snapToWindows: snapToWindows, snapToCenter: snapToCenter)
     }
 

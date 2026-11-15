@@ -89,11 +89,8 @@ private struct SnappingSettings: View {
                     PointsField(value: $settings.centerSnapDistance)
                 }
                 .disabled(!settings.snapToCenter)
-                LabeledContent("Pull-off distance") {
-                    PointsField(value: $settings.releaseDistance)
-                }
             } footer: {
-                Text("Each zone catches within its own distance, as in KWin. A snapped edge lets go once pulled past the pull-off distance (never less than its zone's distance). Windows that sit flush side by side also line up their tops and bottoms, including when you resize one of them. Centre snapping centres a moved window on the screen, or along a screen edge it is snapped to.")
+                Text("Each zone catches within its own distance, as in KWin. A snapped edge lets go once pulled past the same distance. Windows that sit flush side by side also line up their tops and bottoms, including when you resize one of them. Centre snapping centres a moved window on the screen, or along a screen edge it is snapped to.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)

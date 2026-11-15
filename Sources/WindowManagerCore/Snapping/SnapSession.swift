@@ -7,9 +7,9 @@ import CoreGraphics
 /// - while detached, an edge (or the centre) that comes within its zone's distance of a target
 ///   attaches to it;
 /// - while attached, the window stays on that target and every other target is ignored, until the
-///   raw frame has pulled more than the release distance (or the zone's distance, if larger)
-///   away from it. Only then is it detached,
-///   and only then does it start looking for new targets.
+///   raw frame has pulled more than that zone's distance away from it (catch and release use the
+///   same distance, as in KWin). Only then is it detached, and only then does it start looking
+///   for new targets.
 /// That keeps a window from hopping between nearby targets while being pulled off one.
 public struct SnapSession {
     public let engine: SnapEngine
@@ -40,7 +40,7 @@ public struct SnapSession {
             if pass == 2 && attachments[.x] != nil { continue }
             if let a = attachments[axis], pass < 2 {
                 let d = a.target - engine.line(raw, axis, a.anchor)
-                if abs(d) <= max(engine.releaseDistance, a.zone) {
+                if abs(d) <= a.zone {
                     r = engine.apply(d, axis: axis, to: r, operation: operation, moving: moving)
                     continue
                 }

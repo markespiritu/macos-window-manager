@@ -17,8 +17,6 @@ public final class SettingsStore: ObservableObject {
     @Published public var snapToCenter: Bool { didSet { defaults.set(snapToCenter, forKey: "snapToCenter") } }
     /// How close the window's centre must come to the screen's centre before it snaps.
     @Published public var centerSnapDistance: Double { didSet { defaults.set(centerSnapDistance, forKey: "centerSnapDistance") } }
-    /// How far a snapped edge must be pulled before it lets go.
-    @Published public var releaseDistance: Double { didSet { defaults.set(releaseDistance, forKey: "releaseDistance") } }
     @Published public var snapToScreenEdges: Bool { didSet { defaults.set(snapToScreenEdges, forKey: "snapToScreenEdges") } }
     @Published public var snapToWindows: Bool { didSet { defaults.set(snapToWindows, forKey: "snapToWindows") } }
     /// Held during a move or resize, turns snapping off until it is released (nil: no key).
@@ -39,7 +37,6 @@ public final class SettingsStore: ObservableObject {
         defaults.set(window, forKey: "windowSnapDistance")
         snapToCenter = defaults.object(forKey: "snapToCenter") as? Bool ?? false
         centerSnapDistance = defaults.object(forKey: "centerSnapDistance") as? Double ?? 10
-        releaseDistance = defaults.object(forKey: "releaseDistance") as? Double ?? 10
         snapToScreenEdges = defaults.object(forKey: "snapToScreenEdges") as? Bool ?? true
         snapToWindows = defaults.object(forKey: "snapToWindows") as? Bool ?? true
         switch defaults.string(forKey: "snapBypassKey") {
@@ -50,7 +47,7 @@ public final class SettingsStore: ObservableObject {
 
     public var snapEngine: SnapEngine {
         SnapEngine(screenDistance: CGFloat(snapDistance), windowDistance: CGFloat(windowSnapDistance),
-                   centerDistance: CGFloat(centerSnapDistance), releaseDistance: CGFloat(releaseDistance),
+                   centerDistance: CGFloat(centerSnapDistance),
                    snapToScreen: snapToScreenEdges, snapToWindows: snapToWindows, snapToCenter: snapToCenter)
     }
 }

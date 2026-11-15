@@ -197,12 +197,11 @@ final class SettingsTests: XCTestCase {
         let s = SettingsStore(defaults: d)
         XCTAssertTrue(s.snappingEnabled)
         XCTAssertEqual(s.snapDistance, 10)
-        XCTAssertEqual(s.releaseDistance, 10)
         s.snapDistance = 25
         s.snapToWindows = false
         let r = SettingsStore(defaults: d)
         XCTAssertEqual(r.snapEngine, SnapEngine(screenDistance: 25, windowDistance: 10, centerDistance: 10,
-                                                releaseDistance: 10, snapToWindows: false, snapToCenter: false))
+                                                snapToWindows: false, snapToCenter: false))
         XCTAssertFalse(r.snapToCenter)
     }
 }
@@ -251,16 +250,14 @@ final class SnapSessionTests: XCTestCase {
         XCTAssertEqual(r.minY, 600)
     }
 
-    func testReleaseDistanceIsLargerThanCatchDistance() {
-        var s = SnapSession(engine: SnapEngine(distance: 8, releaseDistance: 24), operation: .move,
+    func testEachZoneReleasesAtItsOwnDistance() {
+        // Screen zone 20, window zone 6: attached to the neighbour, it lets go past 6pt.
+        var s = SnapSession(engine: SnapEngine(screenDistance: 20, windowDistance: 6), operation: .move,
                             others: [a], screens: [screen])
         let w = CGSize(width: 500, height: 300)
-        XCTAssertEqual(s.update(CGRect(origin: CGPoint(x: 494, y: 400), size: w)).maxX, 1000) // 6pt: catch
-        XCTAssertEqual(s.update(CGRect(origin: CGPoint(x: 480, y: 400), size: w)).maxX, 1000) // 20pt: still held
-        XCTAssertEqual(s.update(CGRect(origin: CGPoint(x: 475, y: 400), size: w)).maxX, 975)  // 25pt: let go
-        // Coming back, it catches again only within the catch distance.
-        XCTAssertEqual(s.update(CGRect(origin: CGPoint(x: 490, y: 400), size: w)).maxX, 990)
-        XCTAssertEqual(s.update(CGRect(origin: CGPoint(x: 493, y: 400), size: w)).maxX, 1000)
+        XCTAssertEqual(s.update(CGRect(origin: CGPoint(x: 496, y: 400), size: w)).maxX, 1000) // 4pt: catch
+        XCTAssertEqual(s.update(CGRect(origin: CGPoint(x: 495, y: 400), size: w)).maxX, 1000) // 5pt: held
+        XCTAssertEqual(s.update(CGRect(origin: CGPoint(x: 493, y: 400), size: w)).maxX, 993)  // 7pt: let go
     }
 
     func testRawFrameFromMouse() {
